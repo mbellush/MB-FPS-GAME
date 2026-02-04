@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ghostbusters: NYC Streets</title>
+    <title>Ghostbusters: Audio Master Fix</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a0b2e; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -140,24 +140,14 @@
 
         let camera, scene, renderer, controls;
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-        let isMouseDown = false; 
-        let velocity = new THREE.Vector3(), direction = new THREE.Vector3();
-        let prevTime = performance.now();
+        let isMouseDown = false, gameActive = false, score = 0, health = 100, wave = 1;
+        let bossActive = false, currentBoss = null, lastShotTime = 0, currentWeapon = 'pistol', isMobile = false;
         
-        let gameActive = false, score = 0, health = 100, wave = 1;
-        let bossActive = false, currentBoss = null;
-        let currentWeapon = 'pistol'; 
-        let lastShotTime = 0;
-        let isMobile = false;
+        // Audio Global
         let audioCtx = null;
 
         const bullets = [], enemies = [], buildings = [];
-        let weaponContainer, pistolMesh, blasterMesh, protonMesh;
-        let recoilTime = 0;
-        let protonStreamLight;
-
-        let joystickVector = { x: 0, y: 0 };
-        let touchLookSensitivity = 2.0;
+        let weaponContainer, pistolMesh, blasterMesh, protonMesh, protonStreamLight, recoilTime = 0, joystickVector = { x: 0, y: 0 };
 
         init();
         animate();
@@ -174,6 +164,11 @@
         function init() {
             checkDevice();
             
+            // Add Global Audio Unlocker for Desktop Click/Key
+            document.addEventListener('click', forceUnlockAudio);
+            document.addEventListener('keydown', forceUnlockAudio);
+            document.addEventListener('mousedown', forceUnlockAudio);
+
             if (isMobile) {
                 document.querySelectorAll('.mobile-ctrl').forEach(el => el.style.display = 'flex');
                 document.querySelector('.mobile-hint').style.display = 'block';
@@ -188,22 +183,17 @@
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // optimize perfs
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
 
-            const ambient = new THREE.AmbientLight(0x404040, 2); 
+            const ambient = new THREE.AmbientLight(0x404040, 1.5); 
             scene.add(ambient);
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
             dirLight.position.set(50, 100, 50);
             dirLight.castShadow = true;
-            dirLight.shadow.camera.left = -50;
-            dirLight.shadow.camera.right = 50;
-            dirLight.shadow.camera.top = 50;
-            dirLight.shadow.camera.bottom = -50;
             scene.add(dirLight);
 
-            // Ground
             const gridHelper = new THREE.GridHelper(1000, 100, CONFIG.colors.grid, 0x110033);
             scene.add(gridHelper);
             const floorGeo = new THREE.PlaneGeometry(1000, 1000);
@@ -219,7 +209,10 @@
             const startBtn = document.getElementById('start-btn');
             const handleStart = (e) => {
                 e.preventDefault();
-                initAudio();
+                
+                // Initialize Audio IMMEDIATELY on click
+                forceUnlockAudio();
+
                 if (!isMobile) {
                     controls.lock();
                 } else {
@@ -248,10 +241,18 @@
                     gameActive = false;
                     if(health > 0) document.getElementById('start-screen').classList.remove('hidden');
                 });
-                document.addEventListener('keydown', onKeyDown);
-                document.addEventListener('keyup', onKeyUp);
-                document.addEventListener('mousedown', () => { isMouseDown = true; });
-                document.addEventListener('mouseup', () => { isMouseDown = false; });
+                document.addEventListener('keydown', (e) => {
+                    if(e.code==='KeyW') moveForward=true; if(e.code==='KeyS') moveBackward=true;
+                    if(e.code==='KeyA') moveLeft=true; if(e.code==='KeyD') moveRight=true;
+                    // Removed Jump
+                    if(e.key==='1') switchWeapon('pistol'); if(e.key==='2') switchWeapon('blaster'); if(e.key==='3') switchWeapon('proton');
+                });
+                document.addEventListener('keyup', (e) => {
+                    if(e.code==='KeyW') moveForward=false; if(e.code==='KeyS') moveBackward=false;
+                    if(e.code==='KeyA') moveLeft=false; if(e.code==='KeyD') moveRight=false;
+                });
+                document.addEventListener('mousedown', () => isMouseDown = true);
+                document.addEventListener('mouseup', () => isMouseDown = false);
             } else {
                 controls = {
                     getObject: () => camera,
@@ -268,49 +269,30 @@
         function generateCity() {
             const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
             const concreteMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 });
-            const windowMat = new THREE.MeshBasicMaterial({ color: 0xffffaa }); // Warm window light
+            const windowMat = new THREE.MeshBasicMaterial({ color: 0xffffaa });
 
             for(let i=0; i<80; i++) {
-                // Random Size
                 const w = 10 + Math.random() * 20;
                 const d = 10 + Math.random() * 20;
                 const h = 20 + Math.random() * 60;
-
-                // Random Position (Grid-ish)
                 let x = (Math.random() - 0.5) * 400;
                 let z = (Math.random() - 0.5) * 400;
-                
-                // Snap to grid vaguely to create "streets"
                 x = Math.round(x / 40) * 40;
                 z = Math.round(z / 40) * 40;
-
-                // Avoid center (Spawn area)
                 if (Math.abs(x) < 30 && Math.abs(z) < 30) continue;
 
-                // Create Building Group
                 const b = new THREE.Mesh(buildingGeo, concreteMat);
                 b.position.set(x, h/2, z);
                 b.scale.set(w, h, d);
-                b.castShadow = true;
-                b.receiveShadow = true;
+                b.castShadow = true; b.receiveShadow = true;
                 
-                // Windows (Slightly larger box with transparent grid texture simulation)
-                const windows = new THREE.Mesh(new THREE.BoxGeometry(w+0.2, h, d+0.2), 
-                    new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: false }) // Dark base
-                );
-                // Add glowing "panes" using a grid texture or simple geometry would be expensive. 
-                // Let's use simple glowing boxes scattered on the surface
-                
-                // Add simple glow box around it
                 const glowBox = new THREE.Mesh(new THREE.BoxGeometry(w+0.5, h*0.9, d+0.5), 
                     new THREE.MeshBasicMaterial({ color: 0x4400aa, wireframe: true, transparent: true, opacity: 0.1 })
                 );
                 glowBox.position.set(x, h/2, z);
                 
-                // Add literal small glowing squares for windows
                 for(let j=0; j<10; j++) {
                     const win = new THREE.Mesh(new THREE.PlaneGeometry(2, 3), windowMat);
-                    // Pick a side
                     const side = Math.floor(Math.random()*4);
                     if(side===0) { win.position.set(x + w/2 + 0.1, 5 + Math.random()*(h-10), z + (Math.random()-0.5)*d); win.rotation.y = Math.PI/2; }
                     if(side===1) { win.position.set(x - w/2 - 0.1, 5 + Math.random()*(h-10), z + (Math.random()-0.5)*d); win.rotation.y = -Math.PI/2; }
@@ -318,24 +300,22 @@
                     if(side===3) { win.position.set(x + (Math.random()-0.5)*w, 5 + Math.random()*(h-10), z - d/2 - 0.1); win.rotation.y = Math.PI; }
                     scene.add(win);
                 }
-
-                scene.add(b);
-                scene.add(glowBox);
-
-                // Add to collision list (Box3)
+                scene.add(b); scene.add(glowBox);
                 const bbox = new THREE.Box3().setFromObject(b);
                 buildings.push(bbox);
             }
         }
 
-        function initAudio() {
+        // --- AUDIO ENGINE ---
+        function forceUnlockAudio() {
             if (!audioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 audioCtx = new AudioContext();
             }
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            
-            // Force Unlock Buffer
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            // Play silent buffer to warm up DSP
             const buffer = audioCtx.createBuffer(1, 1, 22050);
             const source = audioCtx.createBufferSource();
             source.buffer = buffer;
@@ -344,7 +324,10 @@
         }
 
         function playSound(type) {
+            // Always try to resume
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
             if (!audioCtx) return;
+
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
@@ -369,8 +352,7 @@
                 osc.type = 'sawtooth';
                 const osc2 = audioCtx.createOscillator();
                 const gain2 = audioCtx.createGain();
-                osc2.connect(gain2);
-                gain2.connect(audioCtx.destination);
+                osc2.connect(gain2); gain2.connect(audioCtx.destination);
                 
                 osc.frequency.setValueAtTime(120, now); osc.frequency.linearRampToValueAtTime(400, now + 0.05); 
                 osc2.frequency.setValueAtTime(130, now); osc2.frequency.linearRampToValueAtTime(410, now + 0.05);
@@ -382,40 +364,59 @@
 
         function createWeapons() {
             weaponContainer = new THREE.Group();
-            const stainlessMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.9, roughness: 0.1 });
-            const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.2, roughness: 0.8 });
+            const stainless = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.9, roughness: 0.1 });
+            const black = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.2, roughness: 0.8 });
             
-            // PISTOL
             pistolMesh = new THREE.Group();
-            const slide = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.7), stainlessMat); slide.position.y = 0.08;
-            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.15), blackMat); grip.position.set(0, -0.15, 0.2); grip.rotation.x = 0.2;
-            const pBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.62), blackMat); pBarrel.rotation.x = Math.PI/2; pBarrel.position.y = 0.08;
-            pistolMesh.add(slide, grip, pBarrel);
+            const pSlide = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.7), stainless); pSlide.position.y = 0.08;
+            const pGrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.15), black); pGrip.position.set(0,-0.15,0.2); pGrip.rotation.x = 0.2;
+            pistolMesh.add(pSlide, pGrip);
 
-            // BLASTER
             blasterMesh = new THREE.Group();
             blasterMesh.visible = false;
-            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 16), blackMat); body.rotation.x = Math.PI/2;
-            const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), blackMat); scope.rotation.x = Math.PI/2; scope.position.set(0, 0.18, -0.1);
-            blasterMesh.add(body, scope);
+            const bBody = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,1.4,16), black); bBody.rotation.x = Math.PI/2;
+            blasterMesh.add(bBody);
 
-            // PROTON
             protonMesh = new THREE.Group();
             protonMesh.visible = false;
-            const wandBody = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.6), blackMat);
-            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4), stainlessMat); barrel.rotation.x = Math.PI/2; barrel.position.z = -0.4;
-            const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05), new THREE.MeshBasicMaterial({color: 0xff0000})); tip.rotation.x = Math.PI/2; tip.position.z = -0.6;
-            const fwdGrip = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3), blackMat); fwdGrip.position.set(0.15, 0, -0.1); fwdGrip.rotation.z = -Math.PI/2;
-            const cableGeo = new THREE.TorusGeometry(0.2, 0.02, 8, 16, Math.PI);
-            const cable = new THREE.Mesh(cableGeo, new THREE.MeshBasicMaterial({color: 0x00ff00})); cable.position.set(0, 0.1, 0); cable.rotation.y = Math.PI/2;
-            protonMesh.add(wandBody, barrel, tip, fwdGrip, cable);
+            const wBody = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.6), black);
+            const wBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.4), stainless); wBarrel.rotation.x=Math.PI/2; wBarrel.position.z=-0.4;
+            protonMesh.add(wBody, wBarrel);
 
             weaponContainer.add(pistolMesh, blasterMesh, protonMesh);
-            weaponContainer.position.set(0.4, -0.4, -0.6); 
+            weaponContainer.position.set(0.4, -0.4, -0.6);
             protonStreamLight = new THREE.PointLight(0xff00ff, 0, 10);
             protonMesh.add(protonStreamLight);
             camera.add(weaponContainer);
             scene.add(camera);
+        }
+
+        function setupMobileControls() {
+            const joyZone = document.getElementById('joystick-zone');
+            const joyKnob = document.getElementById('joystick-knob');
+            let startX, startY;
+            joyZone.addEventListener('touchstart', (e) => { e.preventDefault(); const t=e.touches[0]; startX=t.clientX; startY=t.clientY; });
+            joyZone.addEventListener('touchmove', (e) => {
+                e.preventDefault(); const t=e.touches[0];
+                const dx=t.clientX-startX, dy=t.clientY-startY, dist=Math.min(Math.sqrt(dx*dx+dy*dy), 35);
+                const angle=Math.atan2(dy, dx);
+                joyKnob.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
+                joystickVector.x = dx/35; joystickVector.y = dy/35;
+            });
+            joyZone.addEventListener('touchend', () => { joyKnob.style.transform = 'translate(0,0)'; joystickVector={x:0,y:0}; });
+            const lookZone = document.getElementById('look-zone');
+            let lastLookX, lastLookY;
+            lookZone.addEventListener('touchstart', (e) => { isMouseDown=true; lastLookX=e.touches[0].clientX; lastLookY=e.touches[0].clientY; });
+            lookZone.addEventListener('touchend', () => isMouseDown=false);
+            lookZone.addEventListener('touchmove', (e) => {
+                const t=e.touches[0];
+                camera.rotation.y -= (t.clientX-lastLookX)*0.004;
+                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x - (t.clientY-lastLookY)*0.004));
+                lastLookX=t.clientX; lastLookY=t.clientY;
+            });
+            document.getElementById('switch-btn').addEventListener('touchstart', () => {
+                if(currentWeapon==='pistol') switchWeapon('blaster'); else if(currentWeapon==='blaster') switchWeapon('proton'); else switchWeapon('pistol');
+            });
         }
 
         function createGhostModel(type) {
@@ -448,7 +449,7 @@
         }
 
         function spawnEnemy() {
-            if (bossActive) return;
+            if (bossActive || enemies.length > 15) return;
             const r = Math.random();
             let type = r>0.7?'staypuft':r<0.3?'terror':'slimer';
             const ghost = createGhostModel(type);
@@ -458,7 +459,6 @@
             for(let i=0; i<10; i++) {
                 tx = (Math.random()-0.5)*100;
                 tz = (Math.random()-0.5)*100;
-                // Simple distance check from 0,0
                 if(Math.sqrt(tx*tx + tz*tz) > 30) { valid=true; break; }
             }
             if(!valid) return;
@@ -496,55 +496,17 @@
         }
 
         function resetGame() {
-            initAudio();
+            forceUnlockAudio();
             health=100; score=0; wave=1; bossActive=false;
             enemies.forEach(e=>scene.remove(e)); enemies.length=0;
             bullets.forEach(b=>scene.remove(b)); bullets.length=0;
-            camera.position.set(0,1.7,0); // Eye Level
+            camera.position.set(0,1.7,0); 
             gameActive=true; 
             document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('game-over-screen').classList.add('hidden');
             document.getElementById('health-fill').style.width = '100%';
             document.getElementById('boss-ui').style.display = 'none';
             if (!isMobile) controls.lock();
-        }
-
-        function onKeyDown(e) {
-            if(e.code==='KeyW') moveForward=true; if(e.code==='KeyS') moveBackward=true;
-            if(e.code==='KeyA') moveLeft=true; if(e.code==='KeyD') moveRight=true;
-            if(e.key==='1') switchWeapon('pistol'); if(e.key==='2') switchWeapon('blaster'); if(e.key==='3') switchWeapon('proton');
-        }
-        function onKeyUp(e) {
-            if(e.code==='KeyW') moveForward=false; if(e.code==='KeyS') moveBackward=false;
-            if(e.code==='KeyA') moveLeft=false; if(e.code==='KeyD') moveRight=false;
-        }
-
-        function setupMobileControls() {
-            const joyZone = document.getElementById('joystick-zone'); const joyKnob = document.getElementById('joystick-knob');
-            let startX, startY;
-            joyZone.addEventListener('touchstart', (e) => { e.preventDefault(); const t=e.touches[0]; startX=t.clientX; startY=t.clientY; });
-            joyZone.addEventListener('touchmove', (e) => {
-                e.preventDefault(); const t=e.touches[0];
-                const dx=t.clientX-startX, dy=t.clientY-startY, dist=Math.min(Math.sqrt(dx*dx+dy*dy), 35);
-                const angle=Math.atan2(dy, dx);
-                joyKnob.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
-                joystickVector.x = dx/35; joystickVector.y = dy/35;
-            });
-            joyZone.addEventListener('touchend', () => { joyKnob.style.transform = 'translate(0,0)'; joystickVector={x:0,y:0}; });
-            const lookZone = document.getElementById('look-zone');
-            let lastLookX, lastLookY;
-            lookZone.addEventListener('touchstart', (e) => { e.preventDefault(); isMouseDown=true; lastLookX=e.touches[0].clientX; lastLookY=e.touches[0].clientY; });
-            lookZone.addEventListener('touchend', (e) => { e.preventDefault(); isMouseDown=false; });
-            lookZone.addEventListener('touchmove', (e) => {
-                e.preventDefault(); const t=e.touches[0];
-                camera.rotation.y -= (t.clientX-lastLookX)*0.004;
-                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x - (t.clientY-lastLookY)*0.004));
-                lastLookX=t.clientX; lastLookY=t.clientY;
-            });
-            document.getElementById('switch-btn').addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                if(currentWeapon==='pistol') switchWeapon('blaster'); else if(currentWeapon==='blaster') switchWeapon('proton'); else switchWeapon('pistol');
-            });
         }
 
         function animate() {
@@ -555,13 +517,11 @@
             if (isMouseDown && (time-lastShotTime > (currentWeapon==='proton'?30:250))) { shoot(); lastShotTime=time; }
             if (currentWeapon==='proton' && isMouseDown) protonStreamLight.intensity=2; else protonStreamLight.intensity=0;
 
-            // Move logic with collision
             let moveX = 0, moveZ = 0;
             if (isMobile) { moveZ = joystickVector.y; moveX = joystickVector.x; }
             else { moveZ = Number(moveBackward)-Number(moveForward); moveX = Number(moveRight)-Number(moveLeft); }
 
             const speed = CONFIG.playerSpeed * delta;
-            // Apply Camera Rotation to Inputs
             const camDir = new THREE.Vector3(); camera.getWorldDirection(camDir); camDir.y=0; camDir.normalize();
             const camSide = new THREE.Vector3(); camSide.crossVectors(camera.up, camDir).normalize();
             
@@ -570,7 +530,6 @@
             intendedMove.add(camSide.multiplyScalar(moveX));
             intendedMove.normalize().multiplyScalar(speed);
 
-            // Collision Check (Simple)
             const oldPos = camera.position.clone();
             const newPos = oldPos.clone().add(intendedMove);
             
@@ -581,7 +540,7 @@
             }
 
             if (!collision) camera.position.copy(newPos);
-            camera.position.y = 1.7; // LOCKED HEIGHT (No flying/jumping)
+            camera.position.y = 1.7; 
 
             if(recoilTime > 0) { weaponContainer.position.z = -0.6 + recoilTime*0.05; recoilTime -= delta*10; }
 
