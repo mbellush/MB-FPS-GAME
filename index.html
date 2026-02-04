@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Invasion: Universal</title>
+    <title>Neon Invasion: Realistic Edition</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050510; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -14,7 +14,8 @@
         .stats-row { display: flex; justify-content: space-between; width: 100%; margin-bottom: 10px; }
         
         #weapon-hud { position: absolute; bottom: 120px; right: 20px; text-align: right; color: #fff; font-size: 14px; opacity: 0.8; pointer-events: none; }
-        .weapon-active { color: #f00; font-size: 18px; font-weight: bold; text-shadow: 0 0 10px #f00; }
+        .weapon-entry { margin-bottom: 5px; opacity: 0.5; transition: all 0.2s; }
+        .weapon-active { color: #f00; font-size: 20px; font-weight: bold; text-shadow: 0 0 10px #f00; opacity: 1; transform: scale(1.1); }
 
         /* Boss UI */
         #boss-ui { width: 60%; display: none; flex-direction: column; align-items: center; }
@@ -39,18 +40,17 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0, 0, 0, 0.95);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            pointer-events: auto; z-index: 50; /* High Z-index to ensure clicks work */
+            pointer-events: auto; z-index: 50; 
         }
         
         h1 { color: #f00; font-size: 40px; margin: 0; text-align: center; text-transform: uppercase; text-shadow: 0 0 20px #f00; }
         p { color: #fff; font-size: 16px; margin: 20px 0; text-align: center; padding: 0 20px; }
         
-        /* Big Touchable Buttons */
         button {
             padding: 20px 40px; font-size: 24px; background: rgba(0, 255, 255, 0.1); color: #0ff;
             border: 2px solid #0ff; font-family: inherit; text-transform: uppercase;
             cursor: pointer; box-shadow: 0 0 15px #0ff;
-            touch-action: manipulation; /* Improves touch response */
+            touch-action: manipulation;
         }
         button:active { background: #0ff; color: #000; }
         
@@ -63,14 +63,10 @@
         /* --- MOBILE CONTROLS --- */
         .mobile-ctrl { position: absolute; z-index: 40; pointer-events: auto; display: none; }
         
-        /* Joystick Zone (Left Half) */
         #joystick-zone { bottom: 50px; left: 40px; width: 140px; height: 140px; background: rgba(255, 255, 255, 0.05); border-radius: 50%; border: 2px solid rgba(0, 255, 255, 0.2); touch-action: none; }
         #joystick-knob { position: absolute; top: 45px; left: 45px; width: 50px; height: 50px; background: rgba(0, 255, 255, 0.5); border-radius: 50%; pointer-events: none; }
-
-        /* Look Zone (Right Half - Invisible mostly) */
         #look-zone { top: 0; right: 0; width: 50%; height: 100%; position: absolute; z-index: 30; touch-action: none; }
         
-        /* Buttons */
         #shoot-btn { bottom: 60px; right: 40px; width: 90px; height: 90px; background: rgba(255, 0, 0, 0.2); border: 2px solid red; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; user-select: none; }
         #shoot-btn:active { background: rgba(255, 0, 0, 0.6); }
 
@@ -78,7 +74,6 @@
         
         #switch-btn { bottom: 60px; right: 150px; width: 60px; height: 60px; background: rgba(255, 255, 255, 0.2); border: 1px solid white; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; }
 
-        /* Hints */
         .desktop-hint { display: none; }
         .mobile-hint { display: none; }
         .hidden { display: none !important; }
@@ -107,8 +102,8 @@
             </div>
         </div>
         <div id="weapon-hud">
-            <div id="wep-1" class="weapon-active">PISTOL</div>
-            <div id="wep-2">BLASTER</div>
+            <div id="wep-1" class="weapon-entry weapon-active">[1] PISTOL</div>
+            <div id="wep-2" class="weapon-entry">[2] BLASTER</div>
         </div>
         <div class="hud-bottom">
             <div id="health-bar-container"><div id="health-fill"></div></div>
@@ -123,9 +118,9 @@
     <div id="switch-btn" class="mobile-ctrl">SWAP</div>
 
     <div id="start-screen">
-        <h1>NEON DEFENSE</h1>
-        <p class="desktop-hint">CLICK TO START<br>WASD: Move | Mouse: Aim | Click: Shoot</p>
-        <p class="mobile-hint">TAP TO START<br>Left Stick: Move | Right Side: Aim</p>
+        <h1>NEON WARFARE</h1>
+        <p class="desktop-hint">CLICK TO START<br>WASD: Move | 1 & 2: Weapons | Click: Shoot</p>
+        <p class="mobile-hint">TAP TO START<br>Left Stick: Move | Right Side: Aim | Tap Swap</p>
         <button id="start-btn">DEPLOY</button>
     </div>
 
@@ -148,7 +143,6 @@
             colors: { alien: 0x33ff00, boss: 0x00ff00, bulletPistol: 0x00ffff, bulletBlaster: 0xff0000, bossBullet: 0x00ff00, grid: 0x4400ff }
         };
 
-        // --- GLOBAL VARIABLES ---
         let camera, scene, renderer, controls;
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, canJump = false;
         let isMouseDown = false; 
@@ -161,12 +155,10 @@
         let lastShotTime = 0;
         let isMobile = false;
 
-        // Arrays
         const bullets = [], enemies = [], enemyBullets = [];
         let weaponContainer, pistolMesh, blasterMesh;
         let recoilTime = 0;
 
-        // Mobile Inputs
         let joystickVector = { x: 0, y: 0 };
         let touchLookSensitivity = 2.0;
 
@@ -174,24 +166,16 @@
         animate();
 
         function checkDevice() {
-            // Robust detection for Mobile AND Tablets (like iPads)
             const ua = navigator.userAgent;
             const isTouch = (navigator.maxTouchPoints > 0) || (navigator.msMaxTouchPoints > 0);
             const isAndroid = /Android/i.test(ua);
             const isIOS = /iPhone|iPad|iPod/i.test(ua);
-            const isMacLike = navigator.platform === 'MacIntel' && isTouch; // New iPads often identify as MacIntel
-
-            if (isAndroid || isIOS || isMacLike) {
-                isMobile = true;
-            } else {
-                isMobile = false;
-            }
+            const isMacLike = navigator.platform === 'MacIntel' && isTouch;
+            if (isAndroid || isIOS || isMacLike) isMobile = true; else isMobile = false;
         }
 
         function init() {
             checkDevice();
-
-            // Toggle UI based on device
             if (isMobile) {
                 document.querySelectorAll('.mobile-ctrl').forEach(el => el.style.display = 'flex');
                 document.querySelector('.mobile-hint').style.display = 'block';
@@ -200,43 +184,49 @@
             }
 
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x020205);
-            scene.fog = new THREE.FogExp2(0x020205, 0.025);
+            scene.background = new THREE.Color(0x050510);
+            scene.fog = new THREE.FogExp2(0x050510, 0.02);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
 
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             window.audioCtx = new AudioContext();
 
-            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
+            // Lighting
+            const ambient = new THREE.AmbientLight(0x404040, 2); 
+            scene.add(ambient);
+            const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
+            scene.add(hemi);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            dirLight.position.set(50, 50, 50);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            // Floor
             const gridHelper = new THREE.GridHelper(400, 80, CONFIG.colors.grid, 0x110033);
             scene.add(gridHelper);
 
-            createWeapons();
+            createRealisticWeapons();
 
             if (!isMobile) {
                 controls = new PointerLockControls(camera, document.body);
-                // When user clicks "Deploy" on PC, lock pointer and start
                 bindButton('start-btn', () => controls.lock());
-                
                 controls.addEventListener('lock', () => {
                     document.getElementById('start-screen').classList.add('hidden');
                     document.getElementById('game-over-screen').classList.add('hidden');
                     gameActive = true;
                     prevTime = performance.now();
                 });
-                
                 controls.addEventListener('unlock', () => {
                     gameActive = false;
                     if(health > 0) document.getElementById('start-screen').classList.remove('hidden');
                 });
             } else {
-                // Mobile "Controls" dummy object
                 controls = {
                     getObject: () => camera,
                     moveRight: (dist) => camera.translateX(dist),
@@ -249,7 +239,6 @@
                     },
                     unlock: () => { gameActive = false; }
                 };
-                
                 bindButton('start-btn', () => {
                     if (window.audioCtx.state === 'suspended') window.audioCtx.resume();
                     controls.lock();
@@ -257,7 +246,6 @@
                 setupMobileControls();
             }
 
-            // Bind Restart Button
             bindButton('restart-btn', resetGame);
 
             if (!isMobile) {
@@ -269,43 +257,82 @@
             window.addEventListener('resize', onWindowResize);
         }
 
-        // Helper to bind click/touch safely
         function bindButton(id, callback) {
             const btn = document.getElementById(id);
-            const handler = (e) => {
-                e.preventDefault(); // Stop double firing
-                e.stopPropagation();
-                callback();
-            };
+            const handler = (e) => { e.preventDefault(); e.stopPropagation(); callback(); };
             btn.addEventListener('touchstart', handler, {passive: false});
             btn.addEventListener('click', handler);
         }
 
-        function createWeapons() {
+        // --- REALISTIC WEAPON GENERATION ---
+        function createRealisticWeapons() {
             weaponContainer = new THREE.Group();
             
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8, roughness: 0.2 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.5, roughness: 0.6 });
+            const gripMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
+            const glowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+
+            // 1. PISTOL (Tactical Handgun)
             pistolMesh = new THREE.Group();
-            const pBody = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.7), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-            const pTip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.1), new THREE.MeshBasicMaterial({color: 0x00ffff}));
-            pTip.rotation.x = Math.PI/2; pTip.position.z = -0.35;
-            pistolMesh.add(pBody, pTip);
+            // Slide
+            const slide = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.6), metalMat);
+            slide.position.y = 0.08;
+            // Grip
+            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.25, 0.15), gripMat);
+            grip.position.set(0, -0.1, 0.15);
+            grip.rotation.x = 0.2;
+            // Barrel Tip
+            const pBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.62), darkMat);
+            pBarrel.rotation.x = Math.PI/2;
+            pBarrel.position.y = 0.08;
+            // Trigger Guard
+            const guard = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.01, 8, 16), metalMat);
+            guard.position.set(0, -0.05, -0.05);
             
+            pistolMesh.add(slide, grip, pBarrel, guard);
+            
+            // 2. BLASTER (E-11 Style Rifle)
             blasterMesh = new THREE.Group();
             blasterMesh.visible = false;
-            const bBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 16), new THREE.MeshStandardMaterial({ color: 0x111111 }));
-            bBarrel.rotation.x = Math.PI/2;
-            const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.4), new THREE.MeshStandardMaterial({ color: 0x000000 }));
-            scope.rotation.x = Math.PI/2; scope.position.set(0.05, 0.08, -0.1);
-            blasterMesh.add(bBarrel, scope);
+            
+            // Main Body Tube
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 16), darkMat);
+            body.rotation.x = Math.PI/2;
+            // Handle/Grip
+            const bGrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.15), gripMat);
+            bGrip.position.set(0, -0.25, 0.3);
+            bGrip.rotation.x = 0.3;
+            // Scope
+            const scopeMount = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.3), metalMat);
+            scopeMount.position.set(0, 0.1, -0.1);
+            const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), darkMat);
+            scope.rotation.x = Math.PI/2;
+            scope.position.set(0, 0.18, -0.1);
+            // Side Magazine
+            const mag = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.2), metalMat);
+            mag.position.set(-0.15, 0, 0.1);
+            // Cooling Ribs (Visual Texture)
+            const ribs = new THREE.Group();
+            for(let i=0; i<8; i++) {
+                const rib = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.01, 8, 16), metalMat);
+                rib.position.z = -0.5 + (i*0.1);
+                ribs.add(rib);
+            }
+            // Muzzle
+            const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.1), metalMat);
+            muzzle.rotation.x = Math.PI/2;
+            muzzle.position.z = -0.7;
+
+            blasterMesh.add(body, bGrip, scopeMount, scope, mag, ribs, muzzle);
 
             weaponContainer.add(pistolMesh, blasterMesh);
-            weaponContainer.position.set(0.4, -0.3, -0.7);
+            weaponContainer.position.set(0.4, -0.4, -0.6); // Lowered slightly
             camera.add(weaponContainer);
             scene.add(camera);
         }
 
         function setupMobileControls() {
-            // Joystick
             const joyZone = document.getElementById('joystick-zone');
             const joyKnob = document.getElementById('joystick-knob');
             let joyStartX, joyStartY;
@@ -335,7 +362,6 @@
                 joystickVector = { x: 0, y: 0 };
             });
 
-            // Look Touch Zone
             const lookZone = document.getElementById('look-zone');
             let lastLookX, lastLookY;
             
@@ -356,16 +382,12 @@
                 lastLookY = touch.clientY;
             }, {passive: false});
 
-            // Buttons
             const btnShoot = document.getElementById('shoot-btn');
             btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); isMouseDown = true; });
             btnShoot.addEventListener('touchend', (e) => { e.preventDefault(); isMouseDown = false; });
 
             const btnJump = document.getElementById('jump-btn');
-            btnJump.addEventListener('touchstart', (e) => { 
-                e.preventDefault(); 
-                if(canJump && gameActive) { velocity.y += CONFIG.playerJump; canJump = false; }
-            });
+            btnJump.addEventListener('touchstart', (e) => { e.preventDefault(); if(canJump && gameActive) { velocity.y += CONFIG.playerJump; canJump = false; }});
 
             const btnSwap = document.getElementById('switch-btn');
             btnSwap.addEventListener('touchstart', (e) => {
@@ -445,7 +467,7 @@
                 dir.z += (Math.random() - 0.5) * 0.05;
                 dir.normalize();
             }
-            b.position.copy(camera.position).add(dir.clone().multiplyScalar(1.2));
+            b.position.copy(camera.position).add(dir.clone().multiplyScalar(1.5)); // Spawn further out to clear long guns
             b.userData = { velocity: dir.multiplyScalar(isBlaster?100:80), life: 2.0, damage: isBlaster ? 15 : 35 }; 
             scene.add(b);
             bullets.push(b);
@@ -469,8 +491,8 @@
             if(e.code === 'KeyW') moveForward = true; if(e.code === 'KeyS') moveBackward = true;
             if(e.code === 'KeyA') moveLeft = true; if(e.code === 'KeyD') moveRight = true;
             if(e.code === 'Space' && canJump) { velocity.y += CONFIG.playerJump; canJump = false; }
-            if(e.code === 'Digit1') switchWeapon('pistol');
-            if(e.code === 'Digit2') switchWeapon('blaster');
+            if(e.key === '1' || e.code === 'Digit1') switchWeapon('pistol');
+            if(e.key === '2' || e.code === 'Digit2') switchWeapon('blaster');
         }
         function onKeyUp(e) {
             if(e.code === 'KeyW') moveForward = false; if(e.code === 'KeyS') moveBackward = false;
@@ -484,31 +506,21 @@
         }
 
         function resetGame() {
-            // Full Reset
             health = 100; score = 0; wave = 1; bossActive = false;
-            
-            // Clean Arrays
             enemies.forEach(e => scene.remove(e)); enemies.length = 0;
             bullets.forEach(b => scene.remove(b)); bullets.length = 0;
-            
-            // Reset UI
             document.getElementById('health-fill').style.width = '100%';
             document.getElementById('boss-ui').style.display = 'none';
             document.getElementById('score-display').innerText = "KILLS: 0";
             document.getElementById('wave-display').innerText = "WAVE: 1";
-            
-            // Reset Player
             camera.position.set(0,2,0);
             camera.rotation.set(0,0,0);
             velocity.set(0,0,0);
-            
             switchWeapon('pistol');
-
-            // Force unlock if desktop to reset state properly, then re-lock
-            if (!isMobile) {
-                controls.lock(); // This will trigger the 'lock' event listener which hides screens
-            } else {
-                controls.lock(); // Manually triggers mobile start
+            if (!isMobile) controls.lock(); else {
+                document.getElementById('start-screen').classList.add('hidden');
+                document.getElementById('game-over-screen').classList.add('hidden');
+                gameActive = true;
             }
         }
 
@@ -527,7 +539,6 @@
             const delta = (time - prevTime) / 1000;
             prevTime = time;
 
-            // --- LOGIC ---
             const fireRate = currentWeapon === 'blaster' ? 100 : 250; 
             if (isMouseDown && (time - lastShotTime > fireRate)) {
                 shoot();
@@ -553,7 +564,7 @@
 
             if (controls.getObject().position.y < 2) { velocity.y = 0; controls.getObject().position.y = 2; canJump = true; }
 
-            if(recoilTime > 0) { weaponContainer.position.z = -0.7 + (recoilTime * 0.1); recoilTime -= delta * 10; }
+            if(recoilTime > 0) { weaponContainer.position.z = -0.6 + (recoilTime * 0.1); recoilTime -= delta * 10; }
 
             for(let i=bullets.length-1; i>=0; i--) {
                 const b = bullets[i];
