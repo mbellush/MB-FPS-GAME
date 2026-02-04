@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Neon Invasion: Blaster Edition</title>
+    <title>Neon Invasion: Fully Loaded</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050510; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
@@ -17,8 +17,8 @@
         }
         .weapon-entry { margin-bottom: 5px; transition: all 0.2s; }
         .weapon-active { color: #f00; font-size: 24px; font-weight: bold; text-shadow: 0 0 10px #f00; transform: scale(1.1); }
-        .locked { color: #555; text-decoration: line-through; }
-
+        /* Removed .locked class styling as it is no longer needed at start */
+        
         /* Boss UI */
         #boss-ui { width: 60%; display: none; flex-direction: column; align-items: center; }
         #boss-bar-container { width: 100%; height: 15px; border: 2px solid #0f0; background: rgba(0,0,0,0.7); box-shadow: 0 0 15px #0f0; margin-top: 5px; }
@@ -89,11 +89,11 @@
             </div>
         </div>
 
-        <div id="message-area">BLASTER UNLOCKED<br>PRESS '2' TO EQUIP</div>
+        <div id="message-area">HEAVY WEAPONS AUTHORIZED</div>
 
         <div id="weapon-hud">
             <div id="wep-1" class="weapon-entry weapon-active">[1] STANDARD ISSUE</div>
-            <div id="wep-2" class="weapon-entry locked">[2] E-11 BLASTER</div>
+            <div id="wep-2" class="weapon-entry">[2] E-11 BLASTER</div>
         </div>
 
         <div class="hud-bottom">
@@ -105,7 +105,7 @@
 
     <div id="start-screen">
         <h1>ALIEN INVASION</h1>
-        <p>Survive Wave 1. Kill the Boss at Wave 2 to unlock Heavy Weaponry.</p>
+        <p>Press '2' to equip Blaster. Defend against the Green Horde.</p>
         <button id="start-btn">Start Mission</button>
     </div>
 
@@ -123,11 +123,11 @@
             playerSpeed: 16.0,
             playerJump: 10.0,
             gravity: 30.0,
-            enemySpeed: 4.0, // UPDATED: Slower speed
-            bossHP: 300,     // UPDATED: Lower HP
+            enemySpeed: 4.0, // Slow speed
+            bossHP: 300,
             colors: {
                 alien: 0x33ff00,
-                boss: 0x00ff00, // UPDATED: Green Boss
+                boss: 0x00ff00,
                 bulletPistol: 0x00ffff,
                 bulletBlaster: 0xff0000,
                 bossBullet: 0x00ff00,
@@ -144,7 +144,7 @@
         
         let gameActive = false, score = 0, health = 100, wave = 1;
         let bossActive = false, currentBoss = null;
-        let hasBlaster = false;
+        let hasBlaster = true; // START WITH BLASTER UNLOCKED
         let currentWeapon = 'pistol'; 
         let lastShotTime = 0;
         
@@ -234,6 +234,10 @@
                 document.getElementById('start-screen').classList.add('hidden');
                 document.getElementById('game-over-screen').classList.add('hidden');
                 gameActive = true;
+                // Show message briefly at start
+                const msg = document.getElementById('message-area');
+                msg.style.opacity = 1;
+                setTimeout(() => { msg.style.opacity = 0; }, 3000);
             });
             controls.addEventListener('unlock', () => { gameActive = false; isMouseDown = false; });
         }
@@ -268,7 +272,7 @@
         function createAlienModel(isBoss) {
             const group = new THREE.Group();
             const color = isBoss ? CONFIG.colors.boss : CONFIG.colors.alien;
-            const scale = isBoss ? 5.0 : 1.0; // Boss is bigger
+            const scale = isBoss ? 5.0 : 1.0; 
 
             const head = new THREE.Mesh(
                 new THREE.SphereGeometry(0.6, 16, 16), 
@@ -371,17 +375,6 @@
             }
         }
 
-        function unlockBlaster() {
-            hasBlaster = true;
-            const hud = document.getElementById('wep-2');
-            hud.classList.remove('locked');
-            hud.innerText = "[2] E-11 BLASTER";
-            
-            const msg = document.getElementById('message-area');
-            msg.style.opacity = 1;
-            setTimeout(() => { msg.style.opacity = 0; }, 5000);
-        }
-
         function onKeyDown(e) {
             if(e.code === 'KeyW') moveForward = true; if(e.code === 'KeyS') moveBackward = true;
             if(e.code === 'KeyA') moveLeft = true; if(e.code === 'KeyD') moveRight = true;
@@ -454,7 +447,6 @@
                                 scene.remove(e); enemies.splice(j, 1);
                                 wave++; 
                                 document.getElementById('wave-display').innerText = `WAVE: ${wave}`;
-                                if (!hasBlaster) unlockBlaster();
                             }
                         } else {
                             scene.remove(e); enemies.splice(j, 1); score += 10;
@@ -508,7 +500,7 @@
                 }
             });
 
-            // Spawning - MODIFIED: BOSS SPAWNS AT WAVE 2
+            // Spawning
             if (!bossActive) {
                 if (wave % 2 === 0 && enemies.length === 0) spawnBoss(); // Boss every 2 waves
                 else if (enemies.length < 5 + wave && Math.random() < 0.02) spawnAlien();
@@ -525,10 +517,8 @@
         }
 
         function resetGame() {
-            health = 100; score = 0; wave = 1; bossActive = false; hasBlaster = false;
+            health = 100; score = 0; wave = 1; bossActive = false; hasBlaster = true; // Always true now
             switchWeapon('pistol');
-            document.getElementById('wep-2').classList.add('locked');
-            document.getElementById('wep-2').innerText = "[2] E-11 BLASTER";
             document.getElementById('health-fill').style.width = '100%';
             document.getElementById('boss-ui').style.display = 'none';
             enemies.forEach(e => scene.remove(e)); enemyBullets.forEach(b => scene.remove(b));
