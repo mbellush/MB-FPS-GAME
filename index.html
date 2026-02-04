@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Neon Invasion: Blaster Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050510; font-family: 'Courier New', Courier, monospace; user-select: none; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
+        
+        .hud-top { padding: 20px; display: flex; flex-direction: column; align-items: center; color: #0ff; text-shadow: 0 0 10px #0ff; font-size: 24px; font-weight: bold; width: 100%; box-sizing: border-box;}
+        .stats-row { display: flex; justify-content: space-between; width: 100%; margin-bottom: 10px; }
+        
+        /* Weapon HUD */
+        #weapon-hud { 
+            position: absolute; bottom: 100px; right: 20px; text-align: right;
+            color: #fff; font-size: 18px; opacity: 0.8;
+        }
+        .weapon-entry { margin-bottom: 5px; transition: all 0.2s; }
+        .weapon-active { color: #f00; font-size: 24px; font-weight: bold; text-shadow: 0 0 10px #f00; transform: scale(1.1); }
+        .locked { color: #555; text-decoration: line-through; }
+
+        /* Boss UI */
+        #boss-ui { width: 60%; display: none; flex-direction: column; align-items: center; }
+        #boss-bar-container { width: 100%; height: 15px; border: 2px solid #0f0; background: rgba(0,0,0,0.7); box-shadow: 0 0 15px #0f0; margin-top: 5px; }
+        #boss-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #0f0, #cfc); transition: width 0.1s; }
+        .boss-label { font-size: 14px; color: #0f0; text-transform: uppercase; letter-spacing: 2px; }
+
+        .hud-bottom { padding: 20px; display: flex; align-items: flex-end; }
+        #health-bar-container { width: 300px; height: 20px; border: 2px solid #f05; background: rgba(0,0,0,0.5); transform: skewX(-20deg); }
+        #health-fill { width: 100%; height: 100%; background-color: #f05; box-shadow: 0 0 15px #f05; transition: width 0.2s; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 24px; height: 24px;
+            transform: translate(-50%, -50%); pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #0ff; }
+        #crosshair::before { top: 11px; left: 0; width: 24px; height: 2px; box-shadow: 0 0 5px #0ff; }
+        #crosshair::after { top: 0; left: 11px; width: 2px; height: 24px; box-shadow: 0 0 5px #0ff; }
+
+        #start-screen, #game-over-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, rgba(10, 10, 30, 0.95) 0%, rgba(0, 0, 0, 1) 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            pointer-events: auto; z-index: 10;
+        }
+        
+        h1 { color: #f00; font-size: 60px; text-transform: uppercase; text-shadow: 0 0 20px #f00; margin: 0; }
+        p { color: #fff; font-size: 18px; margin: 20px 0; letter-spacing: 1px; }
+        button {
+            padding: 15px 40px; font-size: 20px; background: transparent; color: #0ff;
+            border: 2px solid #0ff; cursor: pointer; font-family: inherit; text-transform: uppercase;
+            box-shadow: 0 0 15px #0ff; transition: all 0.3s;
+        }
+        button:hover { background: #0ff; color: #000; box-shadow: 0 0 40px #0ff; transform: scale(1.05); }
+        
+        .hidden { display: none !important; }
+        #damage-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 50%, rgba(255, 0, 85, 0.4) 100%);
+            opacity: 0; transition: opacity 0.2s; pointer-events: none;
+        }
+        #message-area {
+            position: absolute; top: 35%; width: 100%; text-align: center;
+            color: #ff0; font-size: 36px; font-weight: bold; text-shadow: 0 0 20px #ff0;
+            opacity: 0; transition: opacity 0.5s; pointer-events: none;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="damage-overlay"></div>
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="stats-row">
+                <div id="score-display">KILLS: 0</div>
+                <div id="wave-display">WAVE: 1</div>
+            </div>
+            <div id="boss-ui">
+                <div class="boss-label">!! OVERLORD DETECTED !!</div>
+                <div id="boss-bar-container"><div id="boss-fill"></div></div>
+            </div>
+        </div>
+
+        <div id="message-area">BLASTER UNLOCKED<br>PRESS '2' TO EQUIP</div>
+
+        <div id="weapon-hud">
+            <div id="wep-1" class="weapon-entry weapon-active">[1] STANDARD ISSUE</div>
+            <div id="wep-2" class="weapon-entry locked">[2] E-11 BLASTER</div>
+        </div>
+
+        <div class="hud-bottom">
+            <div style="margin-right: 15px; color: #f05; font-weight: bold; letter-spacing: 2px;">HP</div>
+            <div id="health-bar-container"><div id="health-fill"></div></div>
+        </div>
+    </div>
+    <div id="crosshair"></div>
+
+    <div id="start-screen">
+        <h1>ALIEN INVASION</h1>
+        <p>Survive Wave 1. Kill the Boss at Wave 2 to unlock Heavy Weaponry.</p>
+        <button id="start-btn">Start Mission</button>
+    </div>
+
+    <div id="game-over-screen" class="hidden">
+        <h1 style="color: #f05;">M.I.A.</h1>
+        <p id="final-score">Score: 0</p>
+        <button id="restart-btn">Respawn</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        const CONFIG = {
+            playerSpeed: 16.0,
+            playerJump: 10.0,
+            gravity: 30.0,
+            enemySpeed: 4.0, // UPDATED: Slower speed
+            bossHP: 300,     // UPDATED: Lower HP
+            colors: {
+                alien: 0x33ff00,
+                boss: 0x00ff00, // UPDATED: Green Boss
+                bulletPistol: 0x00ffff,
+                bulletBlaster: 0xff0000,
+                bossBullet: 0x00ff00,
+                grid: 0x4400ff
+            }
+        };
+
+        // Game State
+        let camera, scene, renderer, controls;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, canJump = false;
+        let isMouseDown = false; 
+        let velocity = new THREE.Vector3(), direction = new THREE.Vector3();
+        let prevTime = performance.now();
+        
+        let gameActive = false, score = 0, health = 100, wave = 1;
+        let bossActive = false, currentBoss = null;
+        let hasBlaster = false;
+        let currentWeapon = 'pistol'; 
+        let lastShotTime = 0;
+        
+        const bullets = [], enemies = [], enemyBullets = [];
+        let weaponContainer, pistolMesh, blasterMesh;
+        let recoilTime = 0;
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x020205);
+            scene.fog = new THREE.FogExp2(0x020205, 0.025);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Audio Context
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            window.audioCtx = new AudioContext();
+
+            // Lights
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.5));
+            const gridHelper = new THREE.GridHelper(400, 80, CONFIG.colors.grid, 0x110033);
+            scene.add(gridHelper);
+
+            // --- WEAPONS ---
+            weaponContainer = new THREE.Group();
+            
+            // 1. Pistol Model
+            pistolMesh = new THREE.Group();
+            const pBody = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.7), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+            const pTip = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.1), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+            pTip.rotation.x = Math.PI/2; pTip.position.z = -0.35;
+            pistolMesh.add(pBody, pTip);
+            
+            // 2. Blaster Model (E-11 Style)
+            blasterMesh = new THREE.Group();
+            blasterMesh.visible = false;
+            
+            // Main Barrel
+            const bBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 16), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 }));
+            bBarrel.rotation.x = Math.PI/2;
+            
+            // Cooling fins (Torus rings)
+            for(let i=0; i<6; i++) {
+                const ring = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.01, 8, 16), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+                ring.position.z = 0.2 - (i * 0.1);
+                blasterMesh.add(ring);
+            }
+            
+            // Scope
+            const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.4), new THREE.MeshStandardMaterial({ color: 0x000000 }));
+            scope.rotation.x = Math.PI/2;
+            scope.position.set(0.05, 0.08, -0.1);
+            
+            // Magazine (Side box)
+            const mag = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.2), new THREE.MeshStandardMaterial({ color: 0x000000 }));
+            mag.position.set(-0.08, 0, 0);
+
+            blasterMesh.add(bBarrel, scope, mag);
+
+            weaponContainer.add(pistolMesh);
+            weaponContainer.add(blasterMesh);
+            weaponContainer.position.set(0.4, -0.3, -0.7);
+            
+            camera.add(weaponContainer);
+            scene.add(camera);
+
+            controls = new PointerLockControls(camera, document.body);
+
+            // Input
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('mousedown', () => { isMouseDown = true; });
+            document.addEventListener('mouseup', () => { isMouseDown = false; });
+            window.addEventListener('resize', onWindowResize);
+
+            document.getElementById('start-btn').addEventListener('click', () => controls.lock());
+            document.getElementById('restart-btn').addEventListener('click', resetGame);
+            
+            controls.addEventListener('lock', () => {
+                document.getElementById('start-screen').classList.add('hidden');
+                document.getElementById('game-over-screen').classList.add('hidden');
+                gameActive = true;
+            });
+            controls.addEventListener('unlock', () => { gameActive = false; isMouseDown = false; });
+        }
+
+        // --- AUDIO ---
+        function playSound(type) {
+            if (!window.audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+
+            if (type === 'pistol') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+                gain.gain.setValueAtTime(0.05, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'blaster') {
+                // Higher pitched PEW
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(300, now + 0.15);
+                gain.gain.setValueAtTime(0.05, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                osc.start(now); osc.stop(now + 0.15);
+            }
+        }
+
+        function createAlienModel(isBoss) {
+            const group = new THREE.Group();
+            const color = isBoss ? CONFIG.colors.boss : CONFIG.colors.alien;
+            const scale = isBoss ? 5.0 : 1.0; // Boss is bigger
+
+            const head = new THREE.Mesh(
+                new THREE.SphereGeometry(0.6, 16, 16), 
+                new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: isBoss ? 0.6 : 0.3 })
+            );
+            head.scale.set(1, 1.2, 0.9);
+            group.add(head);
+
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const eyeGeo = new THREE.SphereGeometry(0.15, 8, 8);
+            eyeGeo.scale(1, 1.6, 0.5);
+            const e1 = new THREE.Mesh(eyeGeo, eyeMat); e1.position.set(-0.25, 0.1, 0.45); e1.rotation.z = 0.3;
+            const e2 = new THREE.Mesh(eyeGeo, eyeMat); e2.position.set(0.25, 0.1, 0.45); e2.rotation.z = -0.3;
+            group.add(e1, e2);
+
+            // Boss Details
+            if (isBoss) {
+                const halo = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.05, 8, 32), new THREE.MeshBasicMaterial({color: 0x00ff00}));
+                halo.rotation.x = Math.PI/2;
+                halo.position.y = 1.0;
+                group.add(halo);
+            }
+
+            group.scale.set(scale, scale, scale);
+            return group;
+        }
+
+        function spawnAlien() {
+            if (bossActive) return; 
+            const alien = createAlienModel(false);
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 40 + Math.random() * 20;
+            alien.position.set(camera.position.x + Math.cos(angle) * dist, 1.5, camera.position.z + Math.sin(angle) * dist);
+            alien.userData = { type: 'minion' };
+            scene.add(alien);
+            enemies.push(alien);
+        }
+
+        function spawnBoss() {
+            bossActive = true;
+            const boss = createAlienModel(true);
+            boss.position.set(0, 8, -60);
+            boss.userData = { type: 'boss', hp: CONFIG.bossHP, maxHP: CONFIG.bossHP, lastShot: 0 };
+            currentBoss = boss;
+            scene.add(boss);
+            enemies.push(boss);
+
+            document.getElementById('boss-ui').style.display = 'flex';
+            updateBossBar();
+        }
+
+        function shoot() {
+            const isBlaster = currentWeapon === 'blaster';
+            playSound(isBlaster ? 'blaster' : 'pistol');
+            
+            recoilTime = 1.0;
+            
+            const color = isBlaster ? CONFIG.colors.bulletBlaster : CONFIG.colors.bulletPistol;
+            const size = isBlaster ? 0.08 : 0.12;
+            const speed = isBlaster ? 100 : 80;
+
+            const b = new THREE.Mesh(new THREE.SphereGeometry(size, 8, 8), new THREE.MeshBasicMaterial({ color: color }));
+            
+            const light = new THREE.PointLight(color, 1, 5);
+            b.add(light);
+
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            
+            if (isBlaster) {
+                dir.x += (Math.random() - 0.5) * 0.05;
+                dir.y += (Math.random() - 0.5) * 0.05;
+                dir.z += (Math.random() - 0.5) * 0.05;
+                dir.normalize();
+            }
+
+            b.position.copy(camera.position).add(dir.clone().multiplyScalar(1.2));
+            b.userData = { velocity: dir.multiplyScalar(speed), life: 2.0, damage: isBlaster ? 15 : 35 }; 
+            
+            scene.add(b);
+            bullets.push(b);
+            
+            camera.rotation.x += isBlaster ? 0.005 : 0.02;
+        }
+
+        function switchWeapon(type) {
+            if (type === 'blaster' && !hasBlaster) return;
+            
+            currentWeapon = type;
+            if (type === 'pistol') {
+                pistolMesh.visible = true;
+                blasterMesh.visible = false;
+                document.getElementById('wep-1').classList.add('weapon-active');
+                document.getElementById('wep-2').classList.remove('weapon-active');
+            } else {
+                pistolMesh.visible = false;
+                blasterMesh.visible = true;
+                document.getElementById('wep-1').classList.remove('weapon-active');
+                document.getElementById('wep-2').classList.add('weapon-active');
+            }
+        }
+
+        function unlockBlaster() {
+            hasBlaster = true;
+            const hud = document.getElementById('wep-2');
+            hud.classList.remove('locked');
+            hud.innerText = "[2] E-11 BLASTER";
+            
+            const msg = document.getElementById('message-area');
+            msg.style.opacity = 1;
+            setTimeout(() => { msg.style.opacity = 0; }, 5000);
+        }
+
+        function onKeyDown(e) {
+            if(e.code === 'KeyW') moveForward = true; if(e.code === 'KeyS') moveBackward = true;
+            if(e.code === 'KeyA') moveLeft = true; if(e.code === 'KeyD') moveRight = true;
+            if(e.code === 'Space' && canJump) { velocity.y += CONFIG.playerJump; canJump = false; }
+            if(e.code === 'Digit1') switchWeapon('pistol');
+            if(e.code === 'Digit2') switchWeapon('blaster');
+        }
+        function onKeyUp(e) {
+            if(e.code === 'KeyW') moveForward = false; if(e.code === 'KeyS') moveBackward = false;
+            if(e.code === 'KeyA') moveLeft = false; if(e.code === 'KeyD') moveRight = false;
+        }
+
+        function updateBossBar() {
+            if (!currentBoss) return;
+            const pct = (currentBoss.userData.hp / currentBoss.userData.maxHP) * 100;
+            document.getElementById('boss-fill').style.width = pct + '%';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!gameActive) return;
+
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+            prevTime = time;
+
+            // --- SHOOTING LOGIC ---
+            const fireRate = currentWeapon === 'blaster' ? 100 : 250; 
+            if (isMouseDown && (time - lastShotTime > fireRate)) {
+                shoot();
+                lastShotTime = time;
+            }
+
+            // --- MOVEMENT ---
+            velocity.x -= velocity.x * 10 * delta; velocity.z -= velocity.z * 10 * delta; velocity.y -= CONFIG.gravity * delta;
+            direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft);
+            direction.normalize();
+            if (moveForward || moveBackward) velocity.z -= direction.z * CONFIG.playerSpeed * 40 * delta;
+            if (moveLeft || moveRight) velocity.x -= direction.x * CONFIG.playerSpeed * 40 * delta;
+            controls.moveRight(-velocity.x * delta); controls.moveForward(-velocity.z * delta);
+            controls.getObject().position.y += velocity.y * delta;
+            if (controls.getObject().position.y < 2) { velocity.y = 0; controls.getObject().position.y = 2; canJump = true; }
+
+            // Weapon Animation
+            if(recoilTime > 0) {
+                weaponContainer.position.z = -0.7 + (recoilTime * 0.1);
+                recoilTime -= delta * 10;
+            }
+
+            // --- BULLETS ---
+            for(let i=bullets.length-1; i>=0; i--) {
+                const b = bullets[i];
+                b.position.add(b.userData.velocity.clone().multiplyScalar(delta));
+                b.userData.life -= delta;
+                if(b.userData.life <= 0) { scene.remove(b); bullets.splice(i,1); continue; }
+
+                for(let j=enemies.length-1; j>=0; j--) {
+                    const e = enemies[j];
+                    const hitDist = e.userData.type === 'boss' ? 5.5 : 1.2;
+                    if(b.position.distanceTo(e.position) < hitDist) {
+                        scene.remove(b); bullets.splice(i, 1);
+                        
+                        // Hit Logic
+                        const dmg = b.userData.damage;
+                        if (e.userData.type === 'boss') {
+                            e.userData.hp -= dmg;
+                            updateBossBar();
+                            if(e.userData.hp <= 0) {
+                                score += 500; bossActive = false; document.getElementById('boss-ui').style.display = 'none';
+                                scene.remove(e); enemies.splice(j, 1);
+                                wave++; 
+                                document.getElementById('wave-display').innerText = `WAVE: ${wave}`;
+                                if (!hasBlaster) unlockBlaster();
+                            }
+                        } else {
+                            scene.remove(e); enemies.splice(j, 1); score += 10;
+                        }
+                        document.getElementById('score-display').innerText = `KILLS: ${score}`;
+                        break;
+                    }
+                }
+            }
+
+            // --- ENEMY BULLETS ---
+            for(let i=enemyBullets.length-1; i>=0; i--) {
+                const eb = enemyBullets[i];
+                eb.position.add(eb.userData.velocity.clone().multiplyScalar(delta));
+                if(eb.position.distanceTo(camera.position) < 1.5) {
+                    health -= 15;
+                    document.getElementById('health-fill').style.width = Math.max(0, health) + '%';
+                    document.getElementById('damage-overlay').style.opacity = 1;
+                    setTimeout(() => document.getElementById('damage-overlay').style.opacity = 0, 150);
+                    if(health <= 0) endGame();
+                    scene.remove(eb); enemyBullets.splice(i, 1);
+                } else if((eb.userData.life -= delta) <= 0) { scene.remove(eb); enemyBullets.splice(i, 1); }
+            }
+
+            // --- ENEMIES ---
+            enemies.forEach((e, index) => {
+                if (e.userData.type === 'boss') {
+                    e.lookAt(camera.position);
+                    const toPlayer = new THREE.Vector3().subVectors(camera.position, e.position);
+                    if (toPlayer.length() > 30) e.position.add(toPlayer.normalize().multiplyScalar(delta * 5));
+                    if (time - e.userData.lastShot > 1500) {
+                        const b = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), new THREE.MeshBasicMaterial({ color: CONFIG.colors.bossBullet }));
+                        b.position.copy(e.position);
+                        b.userData = { velocity: toPlayer.normalize().multiplyScalar(30), life: 4.0 };
+                        scene.add(b);
+                        enemyBullets.push(b);
+                        e.userData.lastShot = time;
+                    }
+                } else {
+                    const toPlayer = new THREE.Vector3().subVectors(camera.position, e.position).normalize();
+                    e.position.add(toPlayer.multiplyScalar(CONFIG.enemySpeed * delta));
+                    e.lookAt(camera.position.x, e.position.y, camera.position.z);
+                    if(e.position.distanceTo(camera.position) < 1.5) {
+                        health -= 20; 
+                        document.getElementById('health-fill').style.width = Math.max(0, health) + '%';
+                        document.getElementById('damage-overlay').style.opacity = 1;
+                        setTimeout(() => document.getElementById('damage-overlay').style.opacity = 0, 150);
+                        if(health <= 0) endGame();
+                        scene.remove(e); enemies.splice(index, 1);
+                    }
+                }
+            });
+
+            // Spawning - MODIFIED: BOSS SPAWNS AT WAVE 2
+            if (!bossActive) {
+                if (wave % 2 === 0 && enemies.length === 0) spawnBoss(); // Boss every 2 waves
+                else if (enemies.length < 5 + wave && Math.random() < 0.02) spawnAlien();
+                if (score > wave * 150 && wave % 2 !== 0) { wave++; document.getElementById('wave-display').innerText = `WAVE: ${wave}`; }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function endGame() {
+            gameActive = false; controls.unlock();
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            document.getElementById('final-score').innerText = `Kills: ${score}`;
+        }
+
+        function resetGame() {
+            health = 100; score = 0; wave = 1; bossActive = false; hasBlaster = false;
+            switchWeapon('pistol');
+            document.getElementById('wep-2').classList.add('locked');
+            document.getElementById('wep-2').innerText = "[2] E-11 BLASTER";
+            document.getElementById('health-fill').style.width = '100%';
+            document.getElementById('boss-ui').style.display = 'none';
+            enemies.forEach(e => scene.remove(e)); enemyBullets.forEach(b => scene.remove(b));
+            bullets.forEach(b => scene.remove(b));
+            enemies.length = 0; enemyBullets.length = 0; bullets.length = 0;
+            controls.getObject().position.set(0,2,0);
+            controls.lock();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
