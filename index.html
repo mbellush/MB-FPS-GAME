@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Ghostbusters: Audio Fix</title>
+    <title>Neon Ghostbusters: Audio Fixed</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050510; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -116,6 +116,7 @@
         <p class="desktop-hint">CLICK TO START<br>WASD: Move | 1-3: Weapons | Click: Shoot</p>
         <p class="mobile-hint">TAP TO START<br>Left: Move | Right: Tap/Hold to Shoot & Aim</p>
         <button id="start-btn">POWER ON PACKS</button>
+        <div style="font-size: 12px; color: #888; margin-top: 10px;">Check Silent Switch on iPhone</div>
     </div>
 
     <div id="game-over-screen" class="hidden">
@@ -153,10 +154,7 @@
         let currentWeapon = 'pistol'; 
         let lastShotTime = 0;
         let isMobile = false;
-        
-        // --- AUDIO VARIABLES ---
         let audioCtx = null;
-        let audioUnlocked = false;
 
         const bullets = [], enemies = [], enemyBullets = [];
         let weaponContainer, pistolMesh, blasterMesh, protonMesh;
@@ -180,6 +178,11 @@
 
         function init() {
             checkDevice();
+            
+            // AGGRESSIVE AUDIO UNLOCKER: Attach to the document immediately
+            document.addEventListener('touchstart', forceAudioUnlock, {once:true});
+            document.addEventListener('click', forceAudioUnlock, {once:true});
+
             if (isMobile) {
                 document.querySelectorAll('.mobile-ctrl').forEach(el => el.style.display = 'flex');
                 document.querySelector('.mobile-hint').style.display = 'block';
@@ -212,13 +215,10 @@
 
             createWeapons();
 
-            // BIND START BUTTON WITH IOS AUDIO UNLOCK
             const startBtn = document.getElementById('start-btn');
-            
-            // Function to handle start
             const handleStart = (e) => {
                 e.preventDefault();
-                unlockAudio(); // THE CRITICAL IOS FIX
+                forceAudioUnlock(); // Try unlocking again on direct button press
                 
                 if (!isMobile) {
                     controls.lock();
@@ -236,7 +236,6 @@
             const restartBtn = document.getElementById('restart-btn');
             restartBtn.addEventListener('touchstart', (e) => { e.preventDefault(); resetGame(); }, {passive: false});
             restartBtn.addEventListener('click', (e) => { e.preventDefault(); resetGame(); });
-
 
             if (!isMobile) {
                 controls = new PointerLockControls(camera, document.body);
@@ -266,32 +265,29 @@
             window.addEventListener('resize', onWindowResize);
         }
 
-        // --- AUDIO ENGINE FIX FOR IOS ---
-        function unlockAudio() {
-            if (audioUnlocked) return;
-
+        // --- IMPROVED AUDIO UNLOCKER ---
+        function forceAudioUnlock() {
             if (!audioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 audioCtx = new AudioContext();
             }
-
-            // Resume context if suspended (common in auto-play blocks)
             if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
+                audioCtx.resume().then(() => {
+                    // Play a silent buffer to physically unlock the DSP
+                    const buffer = audioCtx.createBuffer(1, 1, 22050); 
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(audioCtx.destination);
+                    source.start(0);
+                });
             }
-
-            // Play a silent buffer to physically unlock the DSP
-            const buffer = audioCtx.createBuffer(1, 1, 22050); 
-            const source = audioCtx.createBufferSource();
-            source.buffer = buffer;
-            source.connect(audioCtx.destination);
-            source.start(0);
-
-            audioUnlocked = true;
         }
 
         function playSound(type) {
             if (!audioCtx) return;
+            // Force resume if it somehow got suspended
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
@@ -303,7 +299,6 @@
                 osc.frequency.setValueAtTime(150, now);
                 osc.frequency.exponentialRampToValueAtTime(10, now + 0.15);
                 
-                // Noise buffer
                 const bufferSize = audioCtx.sampleRate * 0.2;
                 const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
                 const data = buffer.getChannelData(0);
@@ -357,7 +352,6 @@
             const stainlessMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.9, roughness: 0.1 });
             const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.2, roughness: 0.8 });
             
-            // PISTOL
             pistolMesh = new THREE.Group();
             const slide = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.7), stainlessMat); slide.position.y = 0.08;
             const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.15), blackMat); grip.position.set(0, -0.15, 0.2); grip.rotation.x = 0.2;
@@ -365,14 +359,12 @@
             const sights = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.02), blackMat); sights.position.set(0, 0.16, 0.3);
             pistolMesh.add(slide, grip, hammer, sights);
 
-            // BLASTER
             blasterMesh = new THREE.Group();
             blasterMesh.visible = false;
             const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 16), blackMat); body.rotation.x = Math.PI/2;
             const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), blackMat); scope.rotation.x = Math.PI/2; scope.position.set(0, 0.18, -0.1);
             blasterMesh.add(body, scope);
 
-            // PROTON
             protonMesh = new THREE.Group();
             protonMesh.visible = false;
             const wandBody = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.6), blackMat);
@@ -391,7 +383,6 @@
             scene.add(camera);
         }
 
-        // --- REALISTIC GHOST MODELLING ---
         function createGhostModel(type) {
             const group = new THREE.Group();
             
@@ -550,9 +541,7 @@
             if(e.code === 'KeyW') moveForward = true; if(e.code === 'KeyS') moveBackward = true;
             if(e.code === 'KeyA') moveLeft = true; if(e.code === 'KeyD') moveRight = true;
             if(e.code === 'Space' && canJump) { velocity.y += CONFIG.playerJump; canJump = false; }
-            if(e.key === '1') switchWeapon('pistol');
-            if(e.key === '2') switchWeapon('blaster');
-            if(e.key === '3') switchWeapon('proton');
+            if(e.key === '1') switchWeapon('pistol'); if(e.key === '2') switchWeapon('blaster'); if(e.key === '3') switchWeapon('proton');
         }
         function onKeyUp(e) {
             if(e.code === 'KeyW') moveForward = false; if(e.code === 'KeyS') moveBackward = false;
@@ -566,7 +555,7 @@
         }
 
         function resetGame() {
-            unlockAudio();
+            forceAudioUnlock();
             health = 100; score = 0; wave = 1; bossActive = false; isMouseDown = false;
             enemies.forEach(e => scene.remove(e)); enemies.length = 0;
             bullets.forEach(b => scene.remove(b)); bullets.length = 0;
