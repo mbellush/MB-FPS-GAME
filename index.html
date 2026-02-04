@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Invasion: Realistic Edition</title>
+    <title>Neon Invasion: Universal</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050510; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -17,7 +17,6 @@
         .weapon-entry { margin-bottom: 5px; opacity: 0.5; transition: all 0.2s; }
         .weapon-active { color: #f00; font-size: 20px; font-weight: bold; text-shadow: 0 0 10px #f00; opacity: 1; transform: scale(1.1); }
 
-        /* Boss UI */
         #boss-ui { width: 60%; display: none; flex-direction: column; align-items: center; }
         #boss-bar-container { width: 100%; height: 10px; border: 1px solid #0f0; background: rgba(0,0,0,0.7); margin-top: 5px; }
         #boss-fill { width: 100%; height: 100%; background: #0f0; transition: width 0.1s; }
@@ -63,16 +62,16 @@
         /* --- MOBILE CONTROLS --- */
         .mobile-ctrl { position: absolute; z-index: 40; pointer-events: auto; display: none; }
         
+        /* Joystick */
         #joystick-zone { bottom: 50px; left: 40px; width: 140px; height: 140px; background: rgba(255, 255, 255, 0.05); border-radius: 50%; border: 2px solid rgba(0, 255, 255, 0.2); touch-action: none; }
         #joystick-knob { position: absolute; top: 45px; left: 45px; width: 50px; height: 50px; background: rgba(0, 255, 255, 0.5); border-radius: 50%; pointer-events: none; }
+        
+        /* Look & Fire Zone (Entire Right Side) */
         #look-zone { top: 0; right: 0; width: 50%; height: 100%; position: absolute; z-index: 30; touch-action: none; }
         
-        #shoot-btn { bottom: 60px; right: 40px; width: 90px; height: 90px; background: rgba(255, 0, 0, 0.2); border: 2px solid red; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; user-select: none; }
-        #shoot-btn:active { background: rgba(255, 0, 0, 0.6); }
-
-        #jump-btn { bottom: 170px; right: 40px; width: 70px; height: 70px; background: rgba(0, 255, 255, 0.2); border: 2px solid #0ff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #0ff; user-select: none; }
+        #jump-btn { bottom: 170px; left: 40px; width: 70px; height: 70px; background: rgba(0, 255, 255, 0.2); border: 2px solid #0ff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #0ff; user-select: none; }
         
-        #switch-btn { bottom: 60px; right: 150px; width: 60px; height: 60px; background: rgba(255, 255, 255, 0.2); border: 1px solid white; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; }
+        #switch-btn { bottom: 60px; right: 40px; width: 80px; height: 80px; background: rgba(255, 255, 255, 0.2); border: 1px solid white; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 14px; font-weight: bold; }
 
         .desktop-hint { display: none; }
         .mobile-hint { display: none; }
@@ -113,14 +112,13 @@
 
     <div id="joystick-zone" class="mobile-ctrl"><div id="joystick-knob"></div></div>
     <div id="look-zone" class="mobile-ctrl" style="opacity: 0;"></div>
-    <div id="shoot-btn" class="mobile-ctrl">FIRE</div>
     <div id="jump-btn" class="mobile-ctrl">JUMP</div>
     <div id="switch-btn" class="mobile-ctrl">SWAP</div>
 
     <div id="start-screen">
         <h1>NEON WARFARE</h1>
         <p class="desktop-hint">CLICK TO START<br>WASD: Move | 1 & 2: Weapons | Click: Shoot</p>
-        <p class="mobile-hint">TAP TO START<br>Left Stick: Move | Right Side: Aim | Tap Swap</p>
+        <p class="mobile-hint">TAP TO START<br>Left: Move | Right: Tap/Hold to Shoot & Aim</p>
         <button id="start-btn">DEPLOY</button>
     </div>
 
@@ -154,6 +152,7 @@
         let currentWeapon = 'pistol'; 
         let lastShotTime = 0;
         let isMobile = false;
+        let audioCtx = null; // Audio Context Global
 
         const bullets = [], enemies = [], enemyBullets = [];
         let weaponContainer, pistolMesh, blasterMesh;
@@ -194,8 +193,7 @@
             renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
 
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            window.audioCtx = new AudioContext();
+            // Audio Context is initialized on user interaction (Start Button)
 
             // Lighting
             const ambient = new THREE.AmbientLight(0x404040, 2); 
@@ -213,9 +211,23 @@
 
             createRealisticWeapons();
 
+            // Setup Start Button Action
+            bindButton('start-btn', () => {
+                initAudio(); // MUST happen on user gesture
+                if (!isMobile) {
+                    controls.lock();
+                } else {
+                    document.getElementById('start-screen').classList.add('hidden');
+                    document.getElementById('game-over-screen').classList.add('hidden');
+                    gameActive = true;
+                    prevTime = performance.now();
+                }
+            });
+
+            bindButton('restart-btn', resetGame);
+
             if (!isMobile) {
                 controls = new PointerLockControls(camera, document.body);
-                bindButton('start-btn', () => controls.lock());
                 controls.addEventListener('lock', () => {
                     document.getElementById('start-screen').classList.add('hidden');
                     document.getElementById('game-over-screen').classList.add('hidden');
@@ -226,35 +238,58 @@
                     gameActive = false;
                     if(health > 0) document.getElementById('start-screen').classList.remove('hidden');
                 });
+                document.addEventListener('keydown', onKeyDown);
+                document.addEventListener('keyup', onKeyUp);
+                document.addEventListener('mousedown', () => { isMouseDown = true; });
+                document.addEventListener('mouseup', () => { isMouseDown = false; });
             } else {
                 controls = {
                     getObject: () => camera,
                     moveRight: (dist) => camera.translateX(dist),
                     moveForward: (dist) => camera.translateZ(-dist),
-                    lock: () => { 
-                        document.getElementById('start-screen').classList.add('hidden');
-                        document.getElementById('game-over-screen').classList.add('hidden');
-                        gameActive = true;
-                        prevTime = performance.now();
-                    },
-                    unlock: () => { gameActive = false; }
+                    lock: () => {}, unlock: () => {}
                 };
-                bindButton('start-btn', () => {
-                    if (window.audioCtx.state === 'suspended') window.audioCtx.resume();
-                    controls.lock();
-                });
                 setupMobileControls();
             }
-
-            bindButton('restart-btn', resetGame);
-
-            if (!isMobile) {
-                document.addEventListener('keydown', onKeyDown);
-                document.addEventListener('keyup', onKeyUp);
-                document.addEventListener('mousedown', () => { isMouseDown = true; });
-                document.addEventListener('mouseup', () => { isMouseDown = false; });
-            }
             window.addEventListener('resize', onWindowResize);
+        }
+
+        // --- AUDIO SYSTEM ---
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+
+            if (type === 'pistol') {
+                // Louder, Punchier
+                osc.type = 'square'; 
+                osc.frequency.setValueAtTime(400, now); 
+                osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+                gain.gain.setValueAtTime(0.3, now); // Increased Volume
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } else if (type === 'blaster') {
+                // Louder
+                osc.type = 'sawtooth'; 
+                osc.frequency.setValueAtTime(800, now); 
+                osc.frequency.exponentialRampToValueAtTime(300, now + 0.15);
+                gain.gain.setValueAtTime(0.2, now); // Increased Volume
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                osc.start(now); osc.stop(now + 0.15);
+            }
         }
 
         function bindButton(id, callback) {
@@ -264,70 +299,30 @@
             btn.addEventListener('click', handler);
         }
 
-        // --- REALISTIC WEAPON GENERATION ---
         function createRealisticWeapons() {
             weaponContainer = new THREE.Group();
-            
             const metalMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8, roughness: 0.2 });
             const darkMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.5, roughness: 0.6 });
             const gripMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
-            const glowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
-            // 1. PISTOL (Tactical Handgun)
+            // PISTOL
             pistolMesh = new THREE.Group();
-            // Slide
-            const slide = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.6), metalMat);
-            slide.position.y = 0.08;
-            // Grip
-            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.25, 0.15), gripMat);
-            grip.position.set(0, -0.1, 0.15);
-            grip.rotation.x = 0.2;
-            // Barrel Tip
-            const pBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.62), darkMat);
-            pBarrel.rotation.x = Math.PI/2;
-            pBarrel.position.y = 0.08;
-            // Trigger Guard
-            const guard = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.01, 8, 16), metalMat);
-            guard.position.set(0, -0.05, -0.05);
+            const slide = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.6), metalMat); slide.position.y = 0.08;
+            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.25, 0.15), gripMat); grip.position.set(0, -0.1, 0.15); grip.rotation.x = 0.2;
+            const pBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.62), darkMat); pBarrel.rotation.x = Math.PI/2; pBarrel.position.y = 0.08;
+            pistolMesh.add(slide, grip, pBarrel);
             
-            pistolMesh.add(slide, grip, pBarrel, guard);
-            
-            // 2. BLASTER (E-11 Style Rifle)
+            // BLASTER
             blasterMesh = new THREE.Group();
             blasterMesh.visible = false;
-            
-            // Main Body Tube
-            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 16), darkMat);
-            body.rotation.x = Math.PI/2;
-            // Handle/Grip
-            const bGrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.15), gripMat);
-            bGrip.position.set(0, -0.25, 0.3);
-            bGrip.rotation.x = 0.3;
-            // Scope
-            const scopeMount = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.3), metalMat);
-            scopeMount.position.set(0, 0.1, -0.1);
-            const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), darkMat);
-            scope.rotation.x = Math.PI/2;
-            scope.position.set(0, 0.18, -0.1);
-            // Side Magazine
-            const mag = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.2), metalMat);
-            mag.position.set(-0.15, 0, 0.1);
-            // Cooling Ribs (Visual Texture)
-            const ribs = new THREE.Group();
-            for(let i=0; i<8; i++) {
-                const rib = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.01, 8, 16), metalMat);
-                rib.position.z = -0.5 + (i*0.1);
-                ribs.add(rib);
-            }
-            // Muzzle
-            const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.1), metalMat);
-            muzzle.rotation.x = Math.PI/2;
-            muzzle.position.z = -0.7;
-
-            blasterMesh.add(body, bGrip, scopeMount, scope, mag, ribs, muzzle);
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 16), darkMat); body.rotation.x = Math.PI/2;
+            const bGrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.15), gripMat); bGrip.position.set(0, -0.25, 0.3); bGrip.rotation.x = 0.3;
+            const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), darkMat); scope.rotation.x = Math.PI/2; scope.position.set(0, 0.18, -0.1);
+            const mag = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.2), metalMat); mag.position.set(-0.15, 0, 0.1);
+            blasterMesh.add(body, bGrip, scope, mag);
 
             weaponContainer.add(pistolMesh, blasterMesh);
-            weaponContainer.position.set(0.4, -0.4, -0.6); // Lowered slightly
+            weaponContainer.position.set(0.4, -0.4, -0.6); 
             camera.add(weaponContainer);
             scene.add(camera);
         }
@@ -362,16 +357,25 @@
                 joystickVector = { x: 0, y: 0 };
             });
 
+            // Look & Fire Zone (Right Half)
             const lookZone = document.getElementById('look-zone');
             let lastLookX, lastLookY;
             
             lookZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                isMouseDown = true; // FIRE!
                 const touch = e.changedTouches[0];
                 lastLookX = touch.clientX;
                 lastLookY = touch.clientY;
             }, {passive: false});
 
+            lookZone.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                isMouseDown = false; // STOP FIRE
+            }, {passive: false});
+
             lookZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
                 const touch = e.changedTouches[0];
                 const movementX = touch.clientX - lastLookX;
                 const movementY = touch.clientY - lastLookY;
@@ -382,10 +386,6 @@
                 lastLookY = touch.clientY;
             }, {passive: false});
 
-            const btnShoot = document.getElementById('shoot-btn');
-            btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); isMouseDown = true; });
-            btnShoot.addEventListener('touchend', (e) => { e.preventDefault(); isMouseDown = false; });
-
             const btnJump = document.getElementById('jump-btn');
             btnJump.addEventListener('touchstart', (e) => { e.preventDefault(); if(canJump && gameActive) { velocity.y += CONFIG.playerJump; canJump = false; }});
 
@@ -394,25 +394,6 @@
                 e.preventDefault();
                 switchWeapon(currentWeapon === 'pistol' ? 'blaster' : 'pistol');
             });
-        }
-
-        function playSound(type) {
-            if (!window.audioCtx) return;
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            const now = audioCtx.currentTime;
-
-            if (type === 'pistol') {
-                osc.type = 'square'; osc.frequency.setValueAtTime(400, now); osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
-                gain.gain.setValueAtTime(0.05, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-                osc.start(now); osc.stop(now + 0.1);
-            } else if (type === 'blaster') {
-                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(800, now); osc.frequency.exponentialRampToValueAtTime(300, now + 0.15);
-                gain.gain.setValueAtTime(0.05, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                osc.start(now); osc.stop(now + 0.15);
-            }
         }
 
         function createAlienModel(isBoss) {
@@ -467,7 +448,7 @@
                 dir.z += (Math.random() - 0.5) * 0.05;
                 dir.normalize();
             }
-            b.position.copy(camera.position).add(dir.clone().multiplyScalar(1.5)); // Spawn further out to clear long guns
+            b.position.copy(camera.position).add(dir.clone().multiplyScalar(1.5)); 
             b.userData = { velocity: dir.multiplyScalar(isBlaster?100:80), life: 2.0, damage: isBlaster ? 15 : 35 }; 
             scene.add(b);
             bullets.push(b);
@@ -506,7 +487,10 @@
         }
 
         function resetGame() {
+            // Re-init audio just in case
+            initAudio();
             health = 100; score = 0; wave = 1; bossActive = false;
+            isMouseDown = false;
             enemies.forEach(e => scene.remove(e)); enemies.length = 0;
             bullets.forEach(b => scene.remove(b)); bullets.length = 0;
             document.getElementById('health-fill').style.width = '100%';
@@ -526,6 +510,7 @@
 
         function endGame() {
             gameActive = false; 
+            isMouseDown = false;
             if(!isMobile) controls.unlock();
             document.getElementById('game-over-screen').classList.remove('hidden');
             document.getElementById('final-score').innerText = `Kills: ${score}`;
