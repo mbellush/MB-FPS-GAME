@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ghostbusters: Final Fix</title>
+    <title>Ghostbusters: Unfrozen</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #110022; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
+        body { margin: 0; overflow: hidden; background-color: #1a0b2e; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; z-index: 5; }
         
@@ -33,11 +33,12 @@
         #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
         #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
 
-        #start-screen, #game-over-screen {
+        /* SCREENS */
+        #start-screen, #game-over-screen, #pause-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(20, 10, 30, 0.9);
+            background: rgba(20, 10, 30, 0.95);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            pointer-events: auto; z-index: 100; /* Super high Z-index */
+            pointer-events: auto; z-index: 50; 
         }
         
         h1 { color: #f00; font-size: 40px; margin: 0; text-align: center; text-transform: uppercase; text-shadow: 0 0 20px #f00; }
@@ -48,7 +49,6 @@
             border: 2px solid #0ff; font-family: inherit; text-transform: uppercase;
             cursor: pointer; box-shadow: 0 0 15px #0ff;
             touch-action: manipulation;
-            pointer-events: auto; /* Ensure clicks register */
         }
         button:active { background: #0ff; color: #000; }
         
@@ -111,6 +111,11 @@
         <button id="start-btn">POWER ON PACKS</button>
     </div>
 
+    <div id="pause-screen" class="hidden">
+        <h1>PAUSED</h1>
+        <p>CLICK SCREEN TO RESUME</p>
+    </div>
+
     <div id="game-over-screen" class="hidden">
         <h1 style="color: #f05;">CONTAINMENT BREACH</h1>
         <p id="final-score">Score: 0</p>
@@ -125,7 +130,13 @@
             playerSpeed: 14.0,
             enemySpeed: 3.5,
             bossHP: 400,
-            colors: { slimer: 0x39ff14, staypuft: 0xffffff, terror: 0x330000, grid: 0x4400ff, fog: 0x110022 }
+            colors: { 
+                slimer: 0x39ff14, 
+                staypuft: 0xffffff, 
+                terror: 0x330000,
+                grid: 0x4400ff,
+                fog: 0x1a0b2e
+            }
         };
 
         let camera, scene, renderer, controls;
@@ -152,6 +163,22 @@
         function init() {
             checkDevice();
             
+            // Global Unlocker
+            const unlock = () => {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                try {
+                    const buffer = audioCtx.createBuffer(1, 1, 22050);
+                    const source = audioCtx.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(audioCtx.destination);
+                    source.start(0);
+                } catch(e){}
+            };
+            document.body.addEventListener('touchstart', unlock, {once:true});
+            document.body.addEventListener('click', unlock, {once:true});
+            document.body.addEventListener('keydown', unlock, {once:true});
+
             if (isMobile) {
                 document.querySelectorAll('.mobile-ctrl').forEach(el => el.style.display = 'flex');
                 document.querySelector('.mobile-hint').style.display = 'block';
@@ -191,37 +218,52 @@
 
             camera.position.set(0, 1.7, 0);
 
-            // --- CRITICAL BUTTON FIX ---
+            // BUTTON LOGIC
             const startBtn = document.getElementById('start-btn');
-            startBtn.addEventListener('click', (e) => {
-                // FORCE Game Start Immediately
-                document.getElementById('start-screen').style.display = 'none';
-                document.getElementById('game-over-screen').classList.add('hidden');
+            const handleStart = (e) => {
+                e.preventDefault();
+                unlock(); // Audio unlock
+                
+                // 1. Set Game Active Immediately
                 gameActive = true;
                 prevTime = performance.now();
+                
+                // 2. Hide Screen
+                document.getElementById('start-screen').classList.add('hidden');
+                document.getElementById('game-over-screen').classList.add('hidden');
+                document.getElementById('pause-screen').classList.add('hidden');
 
-                // TRY Desktop Pointer Lock (Might fail, but game is started)
-                if (!isMobile && controls) {
+                // 3. Try to lock (Desktop only)
+                if (!isMobile) {
                     controls.lock();
                 }
-
-                // TRY Audio Unlock (Async, shouldn't block game)
-                initAudio();
-            });
+            };
+            
+            startBtn.addEventListener('click', handleStart);
+            startBtn.addEventListener('touchstart', handleStart);
 
             const restartBtn = document.getElementById('restart-btn');
-            restartBtn.addEventListener('click', resetGame);
-            // Touch listeners for mobile responsiveness
-            startBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startBtn.click(); });
-            restartBtn.addEventListener('touchstart', (e) => { e.preventDefault(); restartBtn.click(); });
+            restartBtn.addEventListener('touchstart', (e) => { e.preventDefault(); resetGame(); }, {passive: false});
+            restartBtn.addEventListener('click', (e) => { e.preventDefault(); resetGame(); });
+
+            // Resume Click Listener (For Pause Screen)
+            document.getElementById('pause-screen').addEventListener('click', () => {
+                if (!isMobile) controls.lock();
+                document.getElementById('pause-screen').classList.add('hidden');
+            });
 
             if (!isMobile) {
                 controls = new PointerLockControls(camera, document.body);
-                // When controls unlock (Esc key), pause state logic but keep rendering
-                controls.addEventListener('unlock', () => { 
-                    if (health > 0) {
-                        // Optional: Show pause menu? For now we just stay in "active" but unlocked mode
+                
+                // If lock is broken, show Pause screen instead of breaking game
+                controls.addEventListener('unlock', () => {
+                    if (health > 0 && gameActive) {
+                        document.getElementById('pause-screen').classList.remove('hidden');
                     }
+                });
+
+                controls.addEventListener('lock', () => {
+                    document.getElementById('pause-screen').classList.add('hidden');
                 });
 
                 document.addEventListener('keydown', onKeyDown);
@@ -240,84 +282,26 @@
             window.addEventListener('resize', onWindowResize);
         }
 
-        // --- AUDIO ENGINE ---
-        function initAudio() {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            try {
-                // Play silent sound to wake up engine
-                const buffer = audioCtx.createBuffer(1, 1, 22050);
-                const source = audioCtx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(audioCtx.destination);
-                source.start(0);
-            } catch(e) {}
-        }
+        // ... [Rest of the helper functions remain the same: Audio, City, Weapons, Models] ...
+        // Re-included below for full copy-paste functionality
 
-        function playSound(type) {
-            if (!audioCtx) return;
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            const now = audioCtx.currentTime;
-
-            if (type === 'pistol') {
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(150, now);
-                osc.frequency.exponentialRampToValueAtTime(10, now + 0.15);
-                gain.gain.setValueAtTime(0.3, now); 
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                osc.start(now); osc.stop(now + 0.15);
-            } else if (type === 'blaster') {
-                osc.type = 'square'; 
-                osc.frequency.setValueAtTime(800, now); 
-                osc.frequency.exponentialRampToValueAtTime(100, now + 0.15);
-                gain.gain.setValueAtTime(0.1, now); 
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                osc.start(now); osc.stop(now + 0.15);
-            } else if (type === 'proton') {
-                osc.type = 'sawtooth';
-                const osc2 = audioCtx.createOscillator();
-                const gain2 = audioCtx.createGain();
-                osc2.connect(gain2); gain2.connect(audioCtx.destination);
-                osc.frequency.setValueAtTime(120, now); osc.frequency.linearRampToValueAtTime(400, now + 0.05); 
-                osc2.frequency.setValueAtTime(130, now); osc2.frequency.linearRampToValueAtTime(410, now + 0.05);
-                gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.1);
-                gain2.gain.setValueAtTime(0.1, now); gain2.gain.linearRampToValueAtTime(0, now + 0.1);
-                osc.start(now); osc.stop(now + 0.1); osc2.start(now); osc2.stop(now + 0.1);
-            }
-        }
-
-        // --- CITY GENERATION ---
         function generateCity() {
             const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
             const concreteMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.9 });
-            const windowMat = new THREE.MeshBasicMaterial({ color: 0xff00ff });
-
             const centerSafetyRadius = 200; 
-
             for(let i=0; i<150; i++) {
                 const w = 20 + Math.random() * 40;
                 const d = 20 + Math.random() * 40;
                 const h = 50 + Math.random() * 200; 
-
                 let x = (Math.random() - 0.5) * 1500;
                 let z = (Math.random() - 0.5) * 1500;
-                
-                x = Math.round(x / 60) * 60;
-                z = Math.round(z / 60) * 60;
-
+                x = Math.round(x / 60) * 60; z = Math.round(z / 60) * 60;
                 if (Math.abs(x) < centerSafetyRadius && Math.abs(z) < centerSafetyRadius) {
                     if (x > 0) x += centerSafetyRadius; else x -= centerSafetyRadius;
                     if (z > 0) z += centerSafetyRadius; else z -= centerSafetyRadius;
                 }
-
                 const b = new THREE.Mesh(buildingGeo, concreteMat);
-                b.position.set(x, h/2, z);
-                b.scale.set(w, h, d);
-                b.castShadow = true; b.receiveShadow = true;
-                
+                b.position.set(x, h/2, z); b.scale.set(w, h, d); b.castShadow = true; b.receiveShadow = true;
                 for(let j=0; j<6; j++) {
                     const win = new THREE.Mesh(new THREE.PlaneGeometry(5, 10), new THREE.MeshBasicMaterial({ color: Math.random()>0.5 ? 0xff00ff : 0x00ffff }));
                     const side = Math.floor(Math.random()*4);
@@ -330,6 +314,32 @@
                 scene.add(b);
                 const bbox = new THREE.Box3().setFromObject(b);
                 buildings.push(bbox);
+            }
+        }
+
+        function playSound(type) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+            if (type === 'pistol') {
+                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(10, now + 0.15);
+                gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                osc.start(now); osc.stop(now + 0.15);
+            } else if (type === 'blaster') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(800, now); osc.frequency.exponentialRampToValueAtTime(100, now + 0.15);
+                gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                osc.start(now); osc.stop(now + 0.15);
+            } else if (type === 'proton') {
+                osc.type = 'sawtooth'; const osc2 = audioCtx.createOscillator(); const gain2 = audioCtx.createGain();
+                osc2.connect(gain2); gain2.connect(audioCtx.destination);
+                osc.frequency.setValueAtTime(120, now); osc.frequency.linearRampToValueAtTime(400, now + 0.05); 
+                osc2.frequency.setValueAtTime(130, now); osc2.frequency.linearRampToValueAtTime(410, now + 0.05);
+                gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.1);
+                gain2.gain.setValueAtTime(0.1, now); gain2.gain.linearRampToValueAtTime(0, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1); osc2.start(now); osc2.stop(now + 0.1);
             }
         }
 
@@ -364,7 +374,6 @@
 
         function createGhostModel(type) {
             const group = new THREE.Group();
-            
             if (type === 'slimer') {
                 const slimeMat = new THREE.MeshPhysicalMaterial({ color: CONFIG.colors.slimer, transmission: 0.8, thickness: 1, roughness: 0.1, transparent: true });
                 const body = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 16), slimeMat); body.scale.set(1, 1.2, 1);
@@ -394,19 +403,15 @@
             const r = Math.random();
             let type = r>0.7?'staypuft':r<0.3?'terror':'slimer';
             const ghost = createGhostModel(type);
-            
             let tx, tz, valid=false;
             for(let i=0; i<10; i++) {
-                tx = (Math.random()-0.5)*300;
-                tz = (Math.random()-0.5)*300;
+                tx = (Math.random()-0.5)*300; tz = (Math.random()-0.5)*300;
                 if(Math.sqrt(tx*tx + tz*tz) > 40) { valid=true; break; }
             }
             if(!valid) return;
-
             ghost.position.set(camera.position.x + tx, 2, camera.position.z + tz);
             ghost.userData = { type: 'minion', hp: 20 };
-            scene.add(ghost);
-            enemies.push(ghost);
+            scene.add(ghost); enemies.push(ghost);
         }
 
         function spawnBoss() {
@@ -436,14 +441,16 @@
         }
 
         function resetGame() {
-            initAudio();
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
             health=100; score=0; wave=1; bossActive=false;
             enemies.forEach(e=>scene.remove(e)); enemies.length=0;
             bullets.forEach(b=>scene.remove(b)); bullets.length=0;
             camera.position.set(0,1.7,0); 
             gameActive=true; 
-            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('start-screen').classList.add('hidden');
             document.getElementById('game-over-screen').classList.add('hidden');
+            document.getElementById('pause-screen').classList.add('hidden');
             document.getElementById('health-fill').style.width = '100%';
             document.getElementById('boss-ui').style.display = 'none';
             if (!isMobile && controls) controls.lock();
@@ -489,11 +496,7 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            if (!gameActive) {
-                // Still render background
-                renderer.render(scene, camera);
-                return;
-            }
+            if (!gameActive) { renderer.render(scene, camera); return; }
 
             const time = performance.now(), delta = (time-prevTime)/1000; prevTime = time;
 
@@ -515,13 +518,9 @@
 
             const oldPos = camera.position.clone();
             const newPos = oldPos.clone().add(intendedMove);
-            
             let collision = false;
             const playerBox = new THREE.Box3().setFromCenterAndSize(newPos, new THREE.Vector3(1, 4, 1));
-            for(let b of buildings) {
-                if(playerBox.intersectsBox(b)) { collision = true; break; }
-            }
-
+            for(let b of buildings) { if(playerBox.intersectsBox(b)) { collision = true; break; } }
             if (!collision) camera.position.copy(newPos);
             camera.position.y = 1.7; 
 
