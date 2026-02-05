@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ghostbusters: Stable Edition</title>
+    <title>Ghostbusters: Frontal Assault</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a0b2e; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -104,8 +104,8 @@
             </div>
         </div>
         <div id="weapon-hud">
-            <div id="wep-1" class="weapon-entry">[1] S&W 45</div>
-            <div id="wep-2" class="weapon-entry weapon-active">[2] BLASTER</div>
+            <div id="wep-1" class="weapon-entry">[1] BREN TEN</div>
+            <div id="wep-2" class="weapon-entry weapon-active">[2] E-11 BLASTER</div>
             <div id="wep-3" class="weapon-entry" style="color:#f0f;">[3] PROTON PACK</div>
         </div>
         <div class="hud-bottom">
@@ -153,13 +153,15 @@
         let inputState = { forward: false, backward: false, left: false, right: false, yaw: 0, pitch: 0 };
         let isMouseDown = false, gameActive = false, score = 0, health = 100, wave = 1;
         let bossActive = false, currentBoss = null, lastShotTime = 0, currentWeapon = 'blaster', isMobile = false;
+        
+        // AUDIO GLOBAL
         let audioCtx;
 
         const bullets = [], enemies = [], buildings = [], particles = [];
         let weaponContainer, pistolMesh, blasterMesh, protonMesh, protonStreamLight, recoilTime = 0, joystickVector = { x: 0, y: 0 };
         let prevTime = performance.now();
 
-        // --- GLOBAL GEOMETRIES FOR PERFORMANCE (Prevents Freezing) ---
+        // --- GLOBAL GEOMETRIES FOR PERFORMANCE ---
         const pistolBulletGeo = new THREE.SphereGeometry(0.08, 8, 8);
         const pistolBulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
         const blasterBulletGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.5);
@@ -259,7 +261,7 @@
             window.addEventListener('resize', onWindowResize);
         }
 
-        // --- AUDIO SYSTEM (OPTIMIZED) ---
+        // --- AUDIO SYSTEM (UPDATED: BREN TEN & E-11) ---
         async function ensureAudio() {
             if (!audioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -279,36 +281,63 @@
             const now = audioCtx.currentTime;
 
             if (type === 'pistol') {
-                // Sharp Crack
+                // BREN TEN (Miami Vice) - 10mm Auto
+                // Combination of Square (for metallic click) and White Noise (explosion)
+                
+                // 1. Heavy Impact (Square)
                 osc.type = 'square';
                 osc.frequency.setValueAtTime(150, now);
-                osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
-                gain.gain.setValueAtTime(0.5, now); 
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-                osc.start(now); osc.stop(now + 0.1);
+                osc.frequency.exponentialRampToValueAtTime(10, now + 0.15); // Deep drop
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                osc.start(now); osc.stop(now + 0.15);
 
-            } else if (type === 'blaster') {
-                // DEEP BLASTER SOUND
-                osc.type = 'sawtooth';
+                // 2. The "Crack" (Noise)
+                const bufferSize = audioCtx.sampleRate * 0.15;
+                const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
                 
-                // Add a low-pass filter to give it "body"
+                const noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+                
+                // Lowpass filter to give it "weight" like a 10mm
                 const filter = audioCtx.createBiquadFilter();
                 filter.type = 'lowpass';
                 filter.frequency.value = 1000;
+
+                const noiseGain = audioCtx.createGain();
+                noise.connect(filter);
+                filter.connect(noiseGain);
+                noiseGain.connect(audioCtx.destination);
+                
+                noiseGain.gain.setValueAtTime(0.8, now);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+                noise.start(now);
+
+            } else if (type === 'blaster') {
+                // STAR WARS E-11: Deep, filtered thump
+                osc.type = 'sawtooth'; // Sawtooth for that "tearing" sound
+                
+                // Lowpass filter is key for the "Stormtrooper" sound
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, now); // Cut off high screech
                 
                 osc.connect(filter);
                 filter.connect(gain);
 
-                // Start mid-high and drop LOW for that "thump"
-                osc.frequency.setValueAtTime(800, now); 
-                osc.frequency.exponentialRampToValueAtTime(80, now + 0.2); 
+                // Start Lower (600Hz) and drop to very low (50Hz)
+                osc.frequency.setValueAtTime(600, now); 
+                osc.frequency.exponentialRampToValueAtTime(50, now + 0.25); 
                 
-                gain.gain.setValueAtTime(0.5, now);
+                gain.gain.setValueAtTime(0.6, now);
                 gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
                 
                 osc.start(now); osc.stop(now + 0.25);
 
             } else if (type === 'proton') {
+                // Proton: Noisy Hum
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(50 + Math.random()*20, now); 
                 gain.gain.setValueAtTime(0.2, now); 
@@ -319,8 +348,6 @@
 
         // --- EXPLOSIONS (OPTIMIZED) ---
         function spawnExplosion(pos, color) {
-            // Reuse global geometry, create simple material per explosion batch is fine, 
-            // but ensure we dispose of it later. Or better: use basic materials.
             const mat = new THREE.MeshBasicMaterial({ color: color });
             
             for(let i=0; i<15; i++) {
@@ -329,7 +356,7 @@
                 mesh.userData = {
                     vel: new THREE.Vector3((Math.random()-0.5)*12, (Math.random()-0.5)*12, (Math.random()-0.5)*12),
                     life: 1.0,
-                    mat: mat // Reference to material to dispose
+                    mat: mat 
                 };
                 scene.add(mesh);
                 particles.push(mesh);
@@ -344,7 +371,6 @@
                 p.scale.setScalar(p.userData.life);
                 if (p.userData.life <= 0) {
                     scene.remove(p);
-                    // Only dispose material once per batch (naive check)
                     if(p.userData.mat) { p.userData.mat.dispose(); p.userData.mat = null; }
                     particles.splice(i, 1);
                 }
@@ -356,13 +382,16 @@
             ensureAudio();
             health = 100; score = 0; wave = 1; bossActive = false;
             
-            // Cleanup existing
             enemies.forEach(e => { scene.remove(e); if(e.userData.mat)e.userData.mat.dispose(); });
             enemies.length = 0;
             bullets.forEach(b => scene.remove(b)); bullets.length = 0;
             particles.forEach(p => scene.remove(p)); particles.length = 0;
             
             camera.position.set(0, 1.7, 0);
+            // Reset look direction to 0,0
+            inputState.yaw = 0; inputState.pitch = 0; 
+            camera.rotation.set(0,0,0);
+
             gameActive = true;
             prevTime = performance.now();
 
@@ -391,19 +420,28 @@
         }
 
         function spawnEnemy() {
-            if (bossActive || enemies.length > 30) return; 
+            if (bossActive || enemies.length > 40) return; // INCREASED MAX
             const r = Math.random();
             let type = r>0.7?'staypuft':r<0.3?'terror':'slimer';
             const ghost = createGhostModel(type);
             
-            let tx, tz, valid=false;
-            for(let i=0; i<10; i++) {
-                tx = (Math.random()-0.5)*300; tz = (Math.random()-0.5)*300;
-                if(Math.sqrt(tx*tx + tz*tz) > 40) { valid=true; break; }
-            }
-            if(!valid) return;
+            // 1. Get Camera Direction
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            dir.y = 0; dir.normalize();
 
-            ghost.position.set(camera.position.x + tx, 2, camera.position.z + tz);
+            // 2. Calculate Angle of Camera
+            const camAngle = Math.atan2(dir.z, dir.x);
+
+            // 3. Add Variance (+/- 45 degrees = PI/4)
+            const spawnAngle = camAngle + (Math.random() - 0.5) * (Math.PI / 2);
+
+            // 4. Calculate Position
+            const dist = 40 + Math.random() * 30; // Spawn distance
+            const tx = camera.position.x + Math.cos(spawnAngle) * dist;
+            const tz = camera.position.z + Math.sin(spawnAngle) * dist;
+
+            ghost.position.set(tx, 2, tz);
             ghost.userData = { type: 'minion', hp: 20, color: type==='slimer'?CONFIG.colors.slimer : (type==='staypuft'?0xffffff:CONFIG.colors.terror) };
             scene.add(ghost); enemies.push(ghost);
         }
@@ -411,7 +449,11 @@
         function spawnBoss() {
             bossActive = true;
             const boss = createGhostModel('staypuft'); boss.scale.set(8, 8, 8);
-            boss.position.set(camera.position.x, 10, camera.position.z - 40);
+            // Spawn Boss in front
+            const dir = new THREE.Vector3(); camera.getWorldDirection(dir); dir.y=0; dir.normalize();
+            const pos = camera.position.clone().add(dir.multiplyScalar(60));
+            
+            boss.position.set(pos.x, 10, pos.z);
             boss.userData = { type: 'boss', hp: CONFIG.bossHP, color: 0xffffff };
             scene.add(boss); enemies.push(boss);
             document.getElementById('boss-ui').style.display = 'flex';
@@ -533,8 +575,9 @@
             updateParticles(delta);
 
             if (!bossActive) {
+                // Increased spawn rate logic
                 if (score > wave * 250) { wave++; spawnBoss(); }
-                else if (enemies.length < 10 + (wave*3) && Math.random() < 0.08) spawnEnemy();
+                else if (enemies.length < 15 + (wave*3) && Math.random() < 0.15) spawnEnemy();
             }
             renderer.render(scene, camera);
         }
