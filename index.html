@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ghostbusters: Ultimate Edition</title>
+    <title>Ghostbusters: Ultimate</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a0b2e; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -21,10 +21,19 @@
         #boss-fill { width: 100%; height: 100%; background: #0f0; transition: width 0.1s; }
         .boss-label { font-size: 12px; color: #0f0; }
 
-        .hud-bottom { padding: 20px; display: flex; align-items: flex-end; }
+        .hud-bottom { padding: 20px; display: flex; align-items: flex-end; justify-content: space-between; }
         #health-bar-container { width: 200px; height: 15px; border: 2px solid #f05; background: rgba(0,0,0,0.5); transform: skewX(-20deg); }
         #health-fill { width: 100%; height: 100%; background-color: #f05; box-shadow: 0 0 15px #f05; transition: width 0.2s; }
         
+        /* QUIT BUTTON */
+        #quit-btn-container { pointer-events: auto; }
+        #quit-game-btn {
+            background: rgba(255, 0, 0, 0.2); color: #ff5555; border: 1px solid #ff5555;
+            padding: 10px 20px; font-family: inherit; cursor: pointer; text-transform: uppercase;
+            font-weight: bold; transition: 0.2s;
+        }
+        #quit-game-btn:hover { background: #ff0000; color: #fff; }
+
         #crosshair {
             position: absolute; top: 50%; left: 50%; width: 20px; height: 20px;
             transform: translate(-50%, -50%); pointer-events: none; z-index: 4;
@@ -33,12 +42,11 @@
         #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
         #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
 
-        /* SCREENS */
-        #start-screen, #game-over-screen, #pause-screen {
+        #start-screen, #game-over-screen {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(20, 10, 30, 0.95);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            pointer-events: auto; z-index: 50; 
+            pointer-events: auto; z-index: 100; 
         }
         
         #resume-overlay {
@@ -50,14 +58,13 @@
         h1 { color: #f00; font-size: 40px; margin: 0; text-align: center; text-transform: uppercase; text-shadow: 0 0 20px #f00; }
         p { color: #fff; font-size: 16px; margin: 20px 0; text-align: center; padding: 0 20px; }
         
-        button {
+        .menu-btn {
             padding: 20px 40px; font-size: 24px; background: rgba(0, 255, 255, 0.1); color: #0ff;
             border: 2px solid #0ff; font-family: inherit; text-transform: uppercase;
             cursor: pointer; box-shadow: 0 0 15px #0ff;
-            touch-action: manipulation;
-            pointer-events: auto; 
+            touch-action: manipulation; pointer-events: auto; 
         }
-        button:active { background: #0ff; color: #000; }
+        .menu-btn:active { background: #0ff; color: #000; }
         
         #damage-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -97,11 +104,12 @@
             </div>
         </div>
         <div id="weapon-hud">
-            <div id="wep-1" class="weapon-entry weapon-active">[1] PISTOL</div>
+            <div id="wep-1" class="weapon-entry weapon-active">[1] S&W 45</div>
             <div id="wep-2" class="weapon-entry">[2] BLASTER</div>
             <div id="wep-3" class="weapon-entry" style="color:#f0f;">[3] PROTON PACK</div>
         </div>
         <div class="hud-bottom">
+            <div id="quit-btn-container"><button id="quit-game-btn">QUIT GAME</button></div>
             <div id="health-bar-container"><div id="health-fill"></div></div>
         </div>
     </div>
@@ -114,15 +122,15 @@
 
     <div id="start-screen">
         <h1>GHOST CITY</h1>
-        <p class="desktop-hint">WASD to Move | Click to Shoot</p>
+        <p class="desktop-hint">WASD to Move | Click to Shoot<br>ESC to End Game</p>
         <p class="mobile-hint">Left: Move | Right: Tap/Hold to Shoot & Aim</p>
-        <button id="start-btn">POWER ON PACKS</button>
+        <button id="start-btn" class="menu-btn">POWER ON PACKS</button>
     </div>
 
     <div id="game-over-screen" class="hidden">
         <h1 style="color: #f05;">CONTAINMENT BREACH</h1>
         <p id="final-score">Score: 0</p>
-        <button id="restart-btn">RETRY</button>
+        <button id="restart-btn" class="menu-btn">REBOOT SYSTEM</button>
     </div>
 
     <script type="module">
@@ -130,7 +138,7 @@
 
         const CONFIG = {
             playerSpeed: 14.0,
-            enemySpeed: 3.5,
+            enemySpeed: 4.5, // Increased speed
             bossHP: 400,
             colors: { 
                 slimer: 0x39ff14, 
@@ -142,7 +150,6 @@
         };
 
         let camera, scene, renderer;
-        // Manual Input State
         let inputState = {
             forward: false, backward: false, left: false, right: false,
             yaw: 0, pitch: 0
@@ -171,26 +178,6 @@
         function init() {
             checkDevice();
             
-            // --- AUDIO WARM-UP (Zero Latency Fix) ---
-            const warmUpAudio = () => {
-                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-                if (audioCtx.state === 'suspended') audioCtx.resume();
-                
-                // Play tiny inaudible sound to force hardware to stay active
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                osc.frequency.value = 100;
-                gain.gain.value = 0.001; 
-                osc.start(0);
-                osc.stop(0.1);
-            };
-            // Bind to ANY interaction on page load
-            document.body.addEventListener('touchstart', warmUpAudio, {once:true});
-            document.body.addEventListener('click', warmUpAudio, {once:true});
-            document.body.addEventListener('keydown', warmUpAudio, {once:true});
-
             if (isMobile) {
                 document.querySelectorAll('.mobile-ctrl').forEach(el => el.style.display = 'flex');
                 document.querySelector('.mobile-hint').style.display = 'block';
@@ -236,37 +223,58 @@
 
             setupInputs();
 
+            // --- BUTTONS ---
             const startBtn = document.getElementById('start-btn');
+            const restartBtn = document.getElementById('restart-btn');
+            const quitBtn = document.getElementById('quit-game-btn');
+
             const handleStart = (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                
-                warmUpAudio(); // Last check for audio
-                
+                initAudio(); // FORCE AUDIO ON CLICK
                 gameActive = true;
                 prevTime = performance.now();
-                
                 document.getElementById('start-screen').classList.add('hidden');
                 document.getElementById('game-over-screen').classList.add('hidden');
-
-                if (!isMobile) {
-                    document.body.requestPointerLock();
-                }
+                if (!isMobile) document.body.requestPointerLock();
             };
             
             startBtn.addEventListener('click', handleStart);
             startBtn.addEventListener('touchstart', handleStart);
 
-            const restartBtn = document.getElementById('restart-btn');
-            restartBtn.addEventListener('touchstart', (e) => { e.preventDefault(); resetGame(); }, {passive: false});
-            restartBtn.addEventListener('click', (e) => { e.preventDefault(); resetGame(); });
+            const handleRestart = (e) => { e.preventDefault(); resetGame(); };
+            restartBtn.addEventListener('click', handleRestart);
+            restartBtn.addEventListener('touchstart', handleRestart);
+
+            const handleQuit = (e) => { e.preventDefault(); endGame(); };
+            quitBtn.addEventListener('click', handleQuit);
+            quitBtn.addEventListener('touchstart', handleQuit);
 
             window.addEventListener('resize', onWindowResize);
         }
 
         // --- AUDIO ENGINE ---
+        function initAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext({ latencyHint: 'interactive' });
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            // Play "Warm Up" silence
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.value = 100;
+            gain.gain.value = 0.001; 
+            osc.start(0);
+            osc.stop(0.1);
+        }
+
         function playSound(type) {
-            if (!audioCtx) return;
+            if (!audioCtx) initAudio();
             if (audioCtx.state === 'suspended') audioCtx.resume();
 
             const osc = audioCtx.createOscillator();
@@ -276,49 +284,70 @@
             const now = audioCtx.currentTime;
 
             if (type === 'pistol') {
-                // S&W 645 - Sharp Crack
+                // S&W 45: Sharp Crack + Noise (Realistic Gunshot)
+                // 1. Sharp frequency drop for "pow"
                 osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(150, now);
-                osc.frequency.exponentialRampToValueAtTime(10, now + 0.15);
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
                 
-                const bufferSize = audioCtx.sampleRate * 0.1;
+                // 2. Noise burst for "crack"
+                const bufferSize = audioCtx.sampleRate * 0.15;
                 const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
                 const data = buffer.getChannelData(0);
                 for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
                 const noise = audioCtx.createBufferSource();
                 noise.buffer = buffer;
+                
+                // Filter the noise to sound like a gunshot
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 2000;
+                
                 const noiseGain = audioCtx.createGain();
-                noise.connect(noiseGain);
+                noise.connect(filter);
+                filter.connect(noiseGain);
                 noiseGain.connect(audioCtx.destination);
-                noiseGain.gain.setValueAtTime(0.5, now);
-                noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                
+                noiseGain.gain.setValueAtTime(1.0, now);
+                noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
                 noise.start(now);
 
-                gain.gain.setValueAtTime(0.3, now); 
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                osc.start(now); osc.stop(now + 0.15);
+                gain.gain.setValueAtTime(0.5, now); 
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
 
             } else if (type === 'blaster') {
-                // E-11 - PEW PEW
-                osc.type = 'square'; 
-                osc.frequency.setValueAtTime(800, now); 
-                osc.frequency.exponentialRampToValueAtTime(100, now + 0.15);
-                gain.gain.setValueAtTime(0.1, now); 
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                osc.start(now); osc.stop(now + 0.15);
+                // Star Wars Blaster: High to Low sweep
+                osc.type = 'square'; // Square wave gives that retro sci-fi tone
+                osc.frequency.setValueAtTime(1500, now); // Start High
+                osc.frequency.exponentialRampToValueAtTime(100, now + 0.2); // Sweep Low fast
+                
+                // Envelope
+                gain.gain.setValueAtTime(0.3, now); 
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                
+                osc.start(now); osc.stop(now + 0.2);
 
             } else if (type === 'proton') {
-                // PROTON STREAM - Electric Hum
+                // Proton Pack: Unstable Electrical Hum
                 osc.type = 'sawtooth';
+                
+                // Create a secondary oscillator for interference (beat frequency)
                 const osc2 = audioCtx.createOscillator();
                 const gain2 = audioCtx.createGain();
-                osc2.connect(gain2); gain2.connect(audioCtx.destination);
+                osc2.type = 'sawtooth';
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
                 
-                osc.frequency.setValueAtTime(120, now); osc.frequency.linearRampToValueAtTime(400, now + 0.05); 
-                osc2.frequency.setValueAtTime(130, now); osc2.frequency.linearRampToValueAtTime(410, now + 0.05);
-                gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.1);
-                gain2.gain.setValueAtTime(0.1, now); gain2.gain.linearRampToValueAtTime(0, now + 0.1);
-                osc.start(now); osc.stop(now + 0.1); osc2.start(now); osc2.stop(now + 0.1);
+                // Base Hum
+                osc.frequency.setValueAtTime(60, now); 
+                osc2.frequency.setValueAtTime(65, now); // Slight detune creates the "wub wub" texture
+
+                gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0, now + 0.1);
+                gain2.gain.setValueAtTime(0.2, now); gain2.gain.linearRampToValueAtTime(0, now + 0.1);
+                
+                osc.start(now); osc.stop(now + 0.1);
+                osc2.start(now); osc2.stop(now + 0.1);
             }
         }
 
@@ -340,6 +369,7 @@
                     if (e.code === 'KeyS') inputState.backward = true;
                     if (e.code === 'KeyA') inputState.left = true;
                     if (e.code === 'KeyD') inputState.right = true;
+                    if (e.code === 'Escape') endGame(); // Escape kills game
                     if (e.key === '1') switchWeapon('pistol');
                     if (e.key === '2') switchWeapon('blaster');
                     if (e.key === '3') switchWeapon('proton');
@@ -375,7 +405,7 @@
             }
         }
 
-        // --- MODELS & VISUALS ---
+        // --- CITY GENERATION ---
         function generateSkyline() {
             const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
             const concreteMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
@@ -416,36 +446,21 @@
             const whitePlastic = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
             const red = new THREE.MeshBasicMaterial({ color: 0xff0000 });
             
-            // 1. REALISTIC PISTOL (S&W 645 style - Stainless)
+            // 1. REALISTIC PISTOL (S&W)
             pistolMesh = new THREE.Group();
             const pSlide = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.6), stainless); pSlide.position.y = 0.08;
-            const pFrame = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.6), stainless);
             const pGrip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.3, 0.15), black); pGrip.position.set(0,-0.15,0.2); pGrip.rotation.x = 0.2;
-            const pTrigger = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.01, 4, 8), black); pTrigger.position.set(0, -0.05, 0);
             const pBarrelTip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.61), black); pBarrelTip.rotation.x=Math.PI/2; pBarrelTip.position.y=0.08;
-            pistolMesh.add(pSlide, pFrame, pGrip, pTrigger, pBarrelTip);
+            pistolMesh.add(pSlide, pGrip, pBarrelTip);
 
-            // 2. STORMTROOPER BLASTER (White E-11 Style)
+            // 2. STORMTROOPER BLASTER (White E-11)
             blasterMesh = new THREE.Group();
             blasterMesh.visible = false;
-            // Main Barrel (White)
             const bBody = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,1.4,16), whitePlastic); bBody.rotation.x = Math.PI/2;
-            // Rear Stock (Black)
-            const bStock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.6), black); bStock.position.set(0, 0, 0.2);
-            // Handle
-            const bGrip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.25, 0.12), black); bGrip.position.set(0, -0.2, 0.2); bGrip.rotation.x = 0.3;
-            // Scope (Black)
             const bScope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5), black); bScope.rotation.x = Math.PI/2; bScope.position.set(0, 0.15, -0.1);
-            // Side Mag (Black)
             const bMag = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.05, 0.2), black); bMag.position.set(-0.1, 0, 0.1);
-            // Ribs (Black)
-            const bRibs = new THREE.Group();
-            for(let i=0; i<6; i++) {
-                const rib = new THREE.Mesh(new THREE.TorusGeometry(0.082, 0.01, 8, 16), black);
-                rib.position.z = -0.5 + (i*0.15);
-                bRibs.add(rib);
-            }
-            blasterMesh.add(bBody, bStock, bGrip, bScope, bMag, bRibs);
+            const bStock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.6), black); bStock.position.set(0, 0, 0.2);
+            blasterMesh.add(bBody, bScope, bMag, bStock);
 
             // 3. PROTON WAND
             protonMesh = new THREE.Group();
@@ -453,10 +468,9 @@
             const wBody = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.6), black);
             const wBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.4), stainless); wBarrel.rotation.x=Math.PI/2; wBarrel.position.z=-0.4;
             const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.05), red); tip.rotation.x = Math.PI/2; tip.position.z = -0.6;
-            const fwdGrip = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3), black); fwdGrip.position.set(0.15, 0, -0.1); fwdGrip.rotation.z = -Math.PI/2;
             const cableGeo = new THREE.TorusGeometry(0.2, 0.02, 8, 16, Math.PI);
             const cable = new THREE.Mesh(cableGeo, new THREE.MeshBasicMaterial({color: 0x00ff00})); cable.position.set(0, 0.1, 0); cable.rotation.y = Math.PI/2;
-            protonMesh.add(wBody, wBarrel, tip, fwdGrip, cable);
+            protonMesh.add(wBody, wBarrel, tip, cable);
 
             weaponContainer.add(pistolMesh, blasterMesh, protonMesh);
             weaponContainer.position.set(0.4, -0.4, -0.6);
@@ -493,18 +507,16 @@
         }
 
         function spawnEnemy() {
-            if (bossActive || enemies.length > 15) return;
+            if (bossActive || enemies.length > 20) return; // More ghosts
             const r = Math.random();
             let type = r>0.7?'staypuft':r<0.3?'terror':'slimer';
             const ghost = createGhostModel(type);
-            
             let tx, tz, valid=false;
             for(let i=0; i<10; i++) {
                 tx = (Math.random()-0.5)*300; tz = (Math.random()-0.5)*300;
                 if(Math.sqrt(tx*tx + tz*tz) > 40) { valid=true; break; }
             }
             if(!valid) return;
-
             ghost.position.set(camera.position.x + tx, 2, camera.position.z + tz);
             ghost.userData = { type: 'minion', hp: 20 };
             scene.add(ghost); enemies.push(ghost);
@@ -542,11 +554,8 @@
                 // Generate Stream (Multiple particles per frame)
                 for(let i=0; i<5; i++) {
                     const b = new THREE.Mesh(new THREE.SphereGeometry(0.04 + Math.random()*0.04), new THREE.MeshBasicMaterial({ color: Math.random()>0.5?0xff00ff:0x00ffff }));
-                    // Jitter direction
                     const sDir = dir.clone();
-                    sDir.x += (Math.random()-0.5)*0.1;
-                    sDir.y += (Math.random()-0.5)*0.1;
-                    sDir.z += (Math.random()-0.5)*0.1;
+                    sDir.x += (Math.random()-0.5)*0.1; sDir.y += (Math.random()-0.5)*0.1; sDir.z += (Math.random()-0.5)*0.1;
                     b.position.copy(camera.position).add(dir.clone().multiplyScalar(1.5));
                     b.userData = { velocity: sDir.multiplyScalar(60), life: 0.6, damage: 5 }; 
                     scene.add(b); bullets.push(b);
@@ -566,8 +575,7 @@
         }
 
         function resetGame() {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (audioCtx.state === 'suspended') audioCtx.resume();
+            initAudio();
             health=100; score=0; wave=1; bossActive=false;
             enemies.forEach(e=>scene.remove(e)); enemies.length=0;
             bullets.forEach(b=>scene.remove(b)); bullets.length=0;
@@ -579,6 +587,13 @@
             document.getElementById('health-fill').style.width = '100%';
             document.getElementById('boss-ui').style.display = 'none';
             if (!isMobile) document.body.requestPointerLock();
+        }
+
+        function endGame() {
+            gameActive = false; isMouseDown = false;
+            if(!isMobile) document.exitPointerLock();
+            document.getElementById('game-over-screen').classList.remove('hidden');
+            document.getElementById('final-score').innerText = `Ghosts Trapped: ${score}`;
         }
 
         function setupMobileControls() {
@@ -637,8 +652,7 @@
 
             const oldPos = camera.position.clone();
             const newPos = oldPos.clone().add(intendedMove);
-            
-            // Simple Boundary
+            // Simple boundary
             if (Math.abs(newPos.x) < 250 && Math.abs(newPos.z) < 250) {
                camera.position.copy(newPos);
             }
@@ -648,9 +662,7 @@
 
             for(let i=bullets.length-1; i>=0; i--) {
                 const b = bullets[i]; b.position.add(b.userData.velocity.clone().multiplyScalar(delta));
-                // Jitter proton stream particles
                 if (currentWeapon === 'proton') { b.position.x += (Math.random()-0.5)*0.1; b.position.y += (Math.random()-0.5)*0.1; }
-                
                 if((b.userData.life-=delta)<=0) { scene.remove(b); bullets.splice(i,1); continue; }
                 for(let j=enemies.length-1; j>=0; j--) {
                     if(b.position.distanceTo(enemies[j].position)<2.0) {
@@ -673,13 +685,14 @@
                 e.lookAt(camera.position);
                 if(e.position.distanceTo(camera.position)<2) {
                     health -= 1; document.getElementById('health-fill').style.width = health+'%';
-                    if(health<=0) { gameActive=false; if(!isMobile) document.exitPointerLock(); document.getElementById('game-over-screen').classList.remove('hidden'); }
+                    if(health<=0) { endGame(); }
                 }
             });
 
             if (!bossActive) {
+                // Increased spawn rate logic
                 if (score > wave * 200) { wave++; spawnBoss(); }
-                else if (enemies.length < 5 + wave && Math.random() < 0.03) spawnEnemy();
+                else if (enemies.length < 5 + (wave*2) && Math.random() < 0.05) spawnEnemy();
             }
             renderer.render(scene, camera);
         }
