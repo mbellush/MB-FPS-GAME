@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ghostbusters: Stable Core</title>
+    <title>Ghostbusters: Stable & Loaded</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a0b2e; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -138,7 +138,7 @@
 
         const CONFIG = {
             playerSpeed: 14.0,
-            enemySpeed: 5.0, // SLOWED DOWN from 8.5
+            enemySpeed: 5.5, // SLOWER (was 8.5)
             bossHP: 400,
             colors: { 
                 slimer: 0x39ff14, 
@@ -151,15 +151,21 @@
 
         let camera, scene, renderer;
         let inputState = { forward: false, backward: false, left: false, right: false, yaw: 0, pitch: 0 };
-        let isMouseDown = false, gameActive = false, score = 0, health = 100, wave = 1;
-        let bossActive = false, currentBoss = null, lastShotTime = 0, currentWeapon = 'blaster', isMobile = false;
+        
+        // FIRING LOGIC STATE
+        let isMouseDown = false;
+        let triggerReset = true; // For semi-auto
+        let lastShotTime = 0;
+
+        let gameActive = false, score = 0, health = 100, wave = 1;
+        let bossActive = false, currentBoss = null, currentWeapon = 'blaster', isMobile = false;
         let audioCtx;
 
         const bullets = [], enemies = [], buildings = [], particles = [];
         let weaponContainer, pistolMesh, blasterMesh, protonMesh, protonStreamLight, recoilTime = 0, joystickVector = { x: 0, y: 0 };
         let prevTime = performance.now();
 
-        // --- PRELOADED ASSETS (MEMORY FIX) ---
+        // --- GLOBAL ASSET POOL (Prevents Memory Leaks) ---
         const ASSETS = {};
 
         init();
@@ -171,34 +177,27 @@
         }
 
         function preloadAssets() {
-            // Geometries
+            // SINGLE INSTANCE GEOMETRIES
             ASSETS.pistolBulletGeo = new THREE.SphereGeometry(0.08, 4, 4);
             ASSETS.blasterBulletGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.5, 4);
             ASSETS.protonGeo = new THREE.SphereGeometry(0.04, 4, 4);
             ASSETS.particleGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
-            ASSETS.ghostGeo = new THREE.SphereGeometry(0.6, 8, 8); // Reduced poly count
+            ASSETS.ghostGeo = new THREE.SphereGeometry(0.6, 8, 8); 
             ASSETS.terrorGeo = new THREE.DodecahedronGeometry(0.7, 0);
+            ASSETS.staypuftGeo = new THREE.SphereGeometry(0.8, 8, 8);
             
-            // Materials
+            // SINGLE INSTANCE MATERIALS
             ASSETS.pistolMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
             ASSETS.blasterMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
             ASSETS.protonMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
             ASSETS.slimerMat = new THREE.MeshPhysicalMaterial({ color: CONFIG.colors.slimer, transmission: 0.8, thickness: 1, transparent: true });
             ASSETS.staypuftMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
             ASSETS.terrorMat = new THREE.MeshStandardMaterial({ color: 0x330000 });
-            ASSETS.redMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
             
-            // Pre-build Ghost Models to Clone
-            ASSETS.slimerModel = new THREE.Group();
-            ASSETS.slimerModel.add(new THREE.Mesh(ASSETS.ghostGeo, ASSETS.slimerMat));
-            
-            ASSETS.staypuftModel = new THREE.Group();
-            ASSETS.staypuftModel.add(new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8), ASSETS.staypuftMat));
-            const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 8), ASSETS.staypuftMat); hat.position.y = 1.0;
-            ASSETS.staypuftModel.add(hat);
-            
-            ASSETS.terrorModel = new THREE.Group();
-            ASSETS.terrorModel.add(new THREE.Mesh(ASSETS.terrorGeo, ASSETS.terrorMat));
+            // Explosion Color Mats (Reused)
+            ASSETS.expSlimer = new THREE.MeshBasicMaterial({ color: CONFIG.colors.slimer });
+            ASSETS.expWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            ASSETS.expRed = new THREE.MeshBasicMaterial({ color: 0xff0000 });
         }
 
         function init() {
@@ -242,7 +241,7 @@
             floor.position.y = -0.1;
             scene.add(floor);
 
-            preloadAssets(); // CRITICAL MEMORY FIX
+            preloadAssets(); // INITIALIZE MEMORY POOL
             generateSkyline();
             createWeapons();
 
@@ -256,19 +255,13 @@
             const quitBtn = document.getElementById('quit-game-btn');
 
             const handleStart = async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                
+                e.preventDefault(); e.stopPropagation();
                 await ensureAudio(); 
-
                 gameActive = true;
                 prevTime = performance.now();
                 document.getElementById('start-screen').classList.add('hidden');
                 document.getElementById('game-over-screen').classList.add('hidden');
-                
-                if (!isMobile) {
-                    try { document.body.requestPointerLock(); } catch(err){}
-                }
+                if (!isMobile) { try { document.body.requestPointerLock(); } catch(err){} }
             };
             
             startBtn.addEventListener('click', handleStart);
@@ -313,7 +306,6 @@
                 gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
                 osc.start(now); osc.stop(now + 0.15);
 
-                // Noise
                 const bufferSize = audioCtx.sampleRate * 0.15;
                 const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
                 const data = buffer.getChannelData(0);
@@ -329,13 +321,12 @@
                 noise.start(now);
 
             } else if (type === 'blaster') {
-                // E-11 BLASTER (Deep)
+                // E-11 BLASTER
                 osc.type = 'sawtooth';
                 const filter = audioCtx.createBiquadFilter();
                 filter.type = 'lowpass';
                 filter.frequency.setValueAtTime(800, now);
-                osc.connect(filter);
-                filter.connect(gain);
+                osc.connect(filter); filter.connect(gain);
                 osc.frequency.setValueAtTime(600, now); 
                 osc.frequency.exponentialRampToValueAtTime(50, now + 0.25); 
                 gain.gain.setValueAtTime(0.6, now);
@@ -343,7 +334,6 @@
                 osc.start(now); osc.stop(now + 0.25);
 
             } else if (type === 'proton') {
-                // Proton
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(50 + Math.random()*20, now); 
                 gain.gain.setValueAtTime(0.2, now); 
@@ -353,21 +343,23 @@
         }
 
         // --- EXPLOSIONS (MEMORY OPTIMIZED) ---
-        function spawnExplosion(pos, color) {
-            // Check current particle count to prevent overload
-            if (particles.length > 200) return; 
+        function spawnExplosion(pos, type) {
+            // Prevent explosion overload
+            if (particles.length > 300) return; 
 
-            // Use simple material to avoid leaks, but we must reuse if possible
-            // For simplicity in this structure, we create new mat but dispose on death
-            const mat = new THREE.MeshBasicMaterial({ color: color });
+            // Select correct REUSED material
+            let mat;
+            if (type === 'slimer') mat = ASSETS.expSlimer;
+            else if (type === 'staypuft') mat = ASSETS.expWhite;
+            else mat = ASSETS.expRed;
             
-            for(let i=0; i<10; i++) {
+            for(let i=0; i<15; i++) {
+                // Use Shared Geometry
                 const mesh = new THREE.Mesh(ASSETS.particleGeo, mat);
                 mesh.position.copy(pos);
                 mesh.userData = {
                     vel: new THREE.Vector3((Math.random()-0.5)*12, (Math.random()-0.5)*12, (Math.random()-0.5)*12),
-                    life: 1.0,
-                    mat: mat 
+                    life: 1.0
                 };
                 scene.add(mesh);
                 particles.push(mesh);
@@ -382,10 +374,7 @@
                 p.scale.setScalar(p.userData.life);
                 if (p.userData.life <= 0) {
                     scene.remove(p);
-                    // Dispose material only if it's the last particle using it (simplified: just dispose always and rely on garbage collector for shared refs in JS is tricky, 
-                    // but here we just let it go. For strictness we should track. 
-                    // Actually, let's just dispose it.
-                    if (p.userData.mat) { p.userData.mat.dispose(); p.userData.mat = null; }
+                    // Do NOT dispose shared material
                     particles.splice(i, 1);
                 }
             }
@@ -396,10 +385,10 @@
             ensureAudio();
             health = 100; score = 0; wave = 1; bossActive = false;
             
-            // Clean Scene
+            // Clean Scene (No dispose here, we reuse assets)
             enemies.forEach(e => scene.remove(e)); enemies.length = 0;
             bullets.forEach(b => scene.remove(b)); bullets.length = 0;
-            particles.forEach(p => { scene.remove(p); if(p.userData.mat) p.userData.mat.dispose(); }); particles.length = 0;
+            particles.forEach(p => scene.remove(p)); particles.length = 0;
             
             camera.position.set(0, 1.7, 0);
             inputState.yaw = 0; inputState.pitch = 0; 
@@ -414,7 +403,7 @@
             document.getElementById('boss-ui').style.display = 'none';
             document.getElementById('score-display').innerText = "GHOSTS BUSTED: 0";
 
-            switchWeapon('blaster');
+            switchWeapon('blaster'); // Default to Blaster
 
             if (!isMobile) {
                 document.body.requestPointerLock();
@@ -426,7 +415,6 @@
             if(!isMobile) document.exitPointerLock();
             document.getElementById('start-screen').classList.remove('hidden');
             document.getElementById('game-over-screen').classList.add('hidden');
-            
             enemies.forEach(e => scene.remove(e)); enemies.length = 0;
             bullets.forEach(b => scene.remove(b)); bullets.length = 0;
         }
@@ -436,41 +424,52 @@
             const r = Math.random();
             let type = r>0.7?'staypuft':r<0.3?'terror':'slimer';
             
-            // MEMORY FIX: Clone existing models
-            let ghost;
-            if(type === 'slimer') ghost = ASSETS.slimerModel.clone();
-            else if(type === 'staypuft') { ghost = ASSETS.staypuftModel.clone(); ghost.scale.set(1.5,1.5,1.5); }
-            else ghost = ASSETS.terrorModel.clone();
+            // USE SHARED GEOMETRY/MATERIALS
+            const ghost = new THREE.Group();
+            let body;
+            if(type === 'slimer') {
+                body = new THREE.Mesh(ASSETS.ghostGeo, ASSETS.slimerMat);
+                body.scale.set(1, 1.2, 0.9);
+                const light = new THREE.PointLight(CONFIG.colors.slimer, 1, 4);
+                ghost.add(body, light);
+            } else if(type === 'staypuft') {
+                body = new THREE.Mesh(ASSETS.staypuftGeo, ASSETS.staypuftMat);
+                ghost.add(body);
+                ghost.scale.set(1.5,1.5,1.5);
+            } else {
+                body = new THREE.Mesh(ASSETS.terrorGeo, ASSETS.terrorMat);
+                ghost.add(body);
+            }
             
-            // 1. Get Camera Direction
+            // FRONTAL ASSAULT CALCULATION
             const dir = new THREE.Vector3();
             camera.getWorldDirection(dir);
             dir.y = 0; dir.normalize();
-
-            // 2. Calculate Angle (Frontal Assault: +/- 45 deg)
             const camAngle = Math.atan2(dir.z, dir.x);
-            const spawnAngle = camAngle + (Math.random() - 0.5) * (Math.PI / 2);
+            // Spawn within +/- 60 degrees of front view
+            const spawnAngle = camAngle + (Math.random() - 0.5) * (Math.PI / 1.5);
 
-            // 3. Position
             const dist = 40 + Math.random() * 30; 
             const tx = camera.position.x + Math.cos(spawnAngle) * dist;
             const tz = camera.position.z + Math.sin(spawnAngle) * dist;
 
             ghost.position.set(tx, 2, tz);
-            ghost.userData = { type: 'minion', hp: 20, color: type==='slimer'?CONFIG.colors.slimer : (type==='staypuft'?0xffffff:CONFIG.colors.terror) };
+            ghost.userData = { type: 'minion', hp: 20, ghostType: type };
             scene.add(ghost); enemies.push(ghost);
         }
 
         function spawnBoss() {
             bossActive = true;
-            const boss = ASSETS.staypuftModel.clone(); 
+            const boss = new THREE.Group();
+            const body = new THREE.Mesh(ASSETS.staypuftGeo, ASSETS.staypuftMat);
+            boss.add(body);
             boss.scale.set(8, 8, 8);
             
             const dir = new THREE.Vector3(); camera.getWorldDirection(dir); dir.y=0; dir.normalize();
             const pos = camera.position.clone().add(dir.multiplyScalar(60));
             
             boss.position.set(pos.x, 10, pos.z);
-            boss.userData = { type: 'boss', hp: CONFIG.bossHP, color: 0xffffff };
+            boss.userData = { type: 'boss', hp: CONFIG.bossHP, ghostType: 'staypuft' };
             scene.add(boss); enemies.push(boss);
             document.getElementById('boss-ui').style.display = 'flex';
         }
@@ -524,8 +523,24 @@
 
             const time = performance.now(), delta = (time-prevTime)/1000; prevTime = time;
 
-            if (isMouseDown && (time-lastShotTime > (currentWeapon==='proton'?30:200))) { shoot(); lastShotTime=time; }
-            if (currentWeapon==='proton' && isMouseDown) protonStreamLight.intensity=2; else protonStreamLight.intensity=0;
+            // --- WEAPON FIRING LOGIC ---
+            if (currentWeapon === 'pistol') {
+                // Semi-Auto: Fire once then wait for reset
+                if (isMouseDown && triggerReset) {
+                    shoot();
+                    triggerReset = false; // Prevents continuous fire
+                }
+            } else {
+                // Full-Auto (Blaster & Proton)
+                let rate = (currentWeapon === 'proton') ? 30 : 200;
+                if (isMouseDown && (time - lastShotTime > rate)) {
+                    shoot();
+                    lastShotTime = time;
+                }
+                // Proton Light Logic
+                if (currentWeapon === 'proton' && isMouseDown) protonStreamLight.intensity = 2; 
+                else protonStreamLight.intensity = 0;
+            }
 
             let moveX = 0, moveZ = 0;
             if (isMobile) { 
@@ -553,6 +568,7 @@
 
             if(recoilTime > 0) { weaponContainer.position.z = -0.6 + recoilTime*0.05; recoilTime -= delta*10; }
 
+            // Update Bullets
             for(let i=bullets.length-1; i>=0; i--) {
                 const b = bullets[i]; b.position.add(b.userData.velocity.clone().multiplyScalar(delta));
                 if (currentWeapon === 'proton') { b.position.x += (Math.random()-0.5)*0.1; b.position.y += (Math.random()-0.5)*0.1; }
@@ -565,7 +581,7 @@
                         e.userData.hp -= b.userData.damage;
                         if(e.userData.type==='boss') updateBossBar();
                         if(e.userData.hp <= 0) {
-                            spawnExplosion(e.position, e.userData.color);
+                            spawnExplosion(e.position, e.userData.ghostType);
                             if(e.userData.type==='boss') { bossActive=false; document.getElementById('boss-ui').style.display='none'; }
                             scene.remove(e); enemies.splice(j,1);
                             score += 10; document.getElementById('score-display').innerText=`BUSTED: ${score}`;
@@ -575,6 +591,7 @@
                 }
             }
 
+            // Update Enemies
             enemies.forEach((e, i) => {
                 const toP = new THREE.Vector3().subVectors(camera.position, e.position).normalize();
                 e.position.add(toP.multiplyScalar(CONFIG.enemySpeed*delta));
@@ -625,12 +642,16 @@
                 document.addEventListener('mousedown', (e) => { 
                     if(gameActive && e.target.id !== 'quit-game-btn') {
                         isMouseDown = true; 
+                        triggerReset = true; // Allow first shot
                         if (document.pointerLockElement !== document.body) {
                             document.body.requestPointerLock();
                         }
                     }
                 });
-                document.addEventListener('mouseup', () => isMouseDown = false);
+                document.addEventListener('mouseup', () => {
+                    isMouseDown = false;
+                    triggerReset = true; // Reset semi-auto trigger
+                });
                 document.addEventListener('pointerlockchange', () => {
                     if (document.pointerLockElement === document.body) {
                         document.getElementById('resume-overlay').style.display = 'none';
