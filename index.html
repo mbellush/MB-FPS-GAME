@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ghostbusters: Final Fix</title>
+    <title>Ghostbusters: Audio Master Fix</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a0b2e; font-family: 'Courier New', Courier, monospace; user-select: none; -webkit-user-select: none; touch-action: none; }
         
@@ -138,7 +138,7 @@
 
         const CONFIG = {
             playerSpeed: 14.0,
-            enemySpeed: 8.5, // Faster
+            enemySpeed: 8.5, 
             bossHP: 400,
             colors: { 
                 slimer: 0x39ff14, 
@@ -155,7 +155,6 @@
         let bossActive = false, currentBoss = null, lastShotTime = 0, currentWeapon = 'blaster', isMobile = false;
         
         // AUDIO GLOBAL
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
         let audioCtx;
 
         const bullets = [], enemies = [], buildings = [], particles = [];
@@ -173,7 +172,6 @@
         function init() {
             checkDevice();
             
-            // --- UI Setup ---
             if (isMobile) {
                 document.querySelectorAll('.mobile-ctrl').forEach(el => el.style.display = 'flex');
                 document.querySelector('.mobile-hint').style.display = 'block';
@@ -183,7 +181,6 @@
                 document.querySelector('.mobile-hint').style.display = 'none';
             }
 
-            // --- Scene Setup ---
             scene = new THREE.Scene();
             scene.background = new THREE.Color(CONFIG.colors.fog);
             scene.fog = new THREE.FogExp2(CONFIG.colors.fog, 0.002);
@@ -220,51 +217,83 @@
 
             setupInputs();
 
-            // --- Event Listeners ---
-            document.getElementById('start-btn').addEventListener('click', startGame);
-            document.getElementById('restart-btn').addEventListener('click', startGame);
-            document.getElementById('quit-game-btn').addEventListener('click', quitGame);
+            // --- BUTTONS ---
+            const startBtn = document.getElementById('start-btn');
+            const restartBtn = document.getElementById('restart-btn');
+            const quitBtn = document.getElementById('quit-game-btn');
+
+            const handleStart = async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // CRITICAL AUDIO FIX FOR PC: Resume context BEFORE everything else
+                await ensureAudio(); 
+
+                gameActive = true;
+                prevTime = performance.now();
+                document.getElementById('start-screen').classList.add('hidden');
+                document.getElementById('game-over-screen').classList.add('hidden');
+                
+                if (!isMobile) {
+                    try { document.body.requestPointerLock(); } catch(err){}
+                }
+            };
             
-            // Touch handlers
-            document.getElementById('start-btn').addEventListener('touchstart', (e)=>{e.preventDefault(); startGame();});
-            document.getElementById('restart-btn').addEventListener('touchstart', (e)=>{e.preventDefault(); startGame();});
-            document.getElementById('quit-game-btn').addEventListener('touchstart', (e)=>{e.preventDefault(); quitGame();});
+            startBtn.addEventListener('click', handleStart);
+            startBtn.addEventListener('touchstart', handleStart);
+
+            const handleRestart = (e) => { e.preventDefault(); resetGame(); };
+            restartBtn.addEventListener('click', handleRestart);
+            restartBtn.addEventListener('touchstart', handleRestart);
+
+            const handleQuit = (e) => { e.preventDefault(); quitGame(); };
+            quitBtn.addEventListener('click', handleQuit);
+            quitBtn.addEventListener('touchstart', handleQuit);
 
             window.addEventListener('resize', onWindowResize);
         }
 
         // --- AUDIO SYSTEM ---
-        function ensureAudio() {
-            if (!audioCtx) audioCtx = new AudioContext({ latencyHint: 'interactive' });
-            if (audioCtx.state === 'suspended') audioCtx.resume();
+        async function ensureAudio() {
+            if (!audioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContext({ latencyHint: 'interactive' });
+            }
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+            }
         }
 
         function playSound(type) {
-            ensureAudio();
-            if(!audioCtx) return;
-
+            if (!audioCtx) return;
             const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
             osc.connect(gain);
             gain.connect(audioCtx.destination);
-            const now = audioCtx.currentTime;
+            
+            // Add slight lookahead to prevent "past" scheduling
+            const now = audioCtx.currentTime + 0.01;
 
             if (type === 'pistol') {
-                // S&W 45: Punchy Square Wave
+                // S&W 45: Sharp Punch
                 osc.type = 'square';
-                osc.frequency.setValueAtTime(200, now);
-                osc.frequency.exponentialRampToValueAtTime(50, now + 0.15);
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
                 gain.gain.setValueAtTime(0.5, now); 
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                osc.start(now); osc.stop(now + 0.15);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
 
             } else if (type === 'blaster') {
-                // Star Wars: High Sweep
+                // NEW BLASTER: Sharp, Metallic, High-Pitch Drop
                 osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(1500, now);
-                osc.frequency.exponentialRampToValueAtTime(200, now + 0.2);
-                gain.gain.setValueAtTime(0.3, now);
-                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                // Start VERY high (2500Hz) and drop fast to 200Hz
+                osc.frequency.setValueAtTime(2500, now); 
+                osc.frequency.exponentialRampToValueAtTime(200, now + 0.18);
+                
+                // Volume envelope
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+                
                 osc.start(now); osc.stop(now + 0.2);
 
             } else if (type === 'proton') {
@@ -310,8 +339,7 @@
 
         // --- GAME LOGIC ---
         function startGame() {
-            ensureAudio(); // Force Audio Start
-            
+            ensureAudio();
             health = 100; score = 0; wave = 1; bossActive = false;
             enemies.forEach(e => scene.remove(e)); enemies.length = 0;
             bullets.forEach(b => scene.remove(b)); bullets.length = 0;
@@ -491,8 +519,9 @@
             updateParticles(delta);
 
             if (!bossActive) {
+                // Increased spawn rate logic
                 if (score > wave * 250) { wave++; spawnBoss(); }
-                else if (enemies.length < 10 + (wave*3) && Math.random() < 0.1) spawnEnemy();
+                else if (enemies.length < 10 + (wave*3) && Math.random() < 0.08) spawnEnemy();
             }
             renderer.render(scene, camera);
         }
@@ -528,13 +557,18 @@
                 document.addEventListener('mousedown', (e) => { 
                     if(gameActive && e.target.id !== 'quit-game-btn') {
                         isMouseDown = true; 
-                        if (document.pointerLockElement !== document.body) document.body.requestPointerLock();
+                        if (document.pointerLockElement !== document.body) {
+                            document.body.requestPointerLock();
+                        }
                     }
                 });
                 document.addEventListener('mouseup', () => isMouseDown = false);
                 document.addEventListener('pointerlockchange', () => {
-                    if (document.pointerLockElement === document.body) document.getElementById('resume-overlay').style.display = 'none';
-                    else if (gameActive) document.getElementById('resume-overlay').style.display = 'block';
+                    if (document.pointerLockElement === document.body) {
+                        document.getElementById('resume-overlay').style.display = 'none';
+                    } else if (gameActive) {
+                        document.getElementById('resume-overlay').style.display = 'block';
+                    }
                 });
             } else setupMobileControls();
         }
